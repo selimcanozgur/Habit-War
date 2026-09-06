@@ -1,0 +1,303 @@
+// Habit War — Phase 0 schema.
+//
+// Scope is deliberately limited to what a working single-player tracker needs:
+// User, Habit, Session, and the two tables the XP engine cannot run without
+// (XpLedger, DailyUsage). Social models land in Phase 1 — see docs/product-spec.md.
+//
+// The spec's §7 schema referenced a GuildMember model that was never defined and
+// omitted every model its own API section required. Rather than copy that forward,
+// each phase adds only models that are actually reachable from a route.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// User
+// ---------------------------------------------------------------------------
+
+model User {
+  id String @id @default(cuid())
+
+  /// Clerk's user id. The spec chose Clerk for auth but gave the User model no
+  /// field to correlate against, which makes the webhook sync impossible.
+  clerkId String @unique
+
+  username    String  @unique
+  displayName String
+  email       String  @unique
+  avatarUrl   String?
+  bio         String? @db.VarChar(160)
+
+  /// IANA timezone. Owns the day boundary for streaks, daily caps and league weeks.
+  timezone String @default("Europe/Istanbul")
+
+  /// Birth date, for the age gate. Stores of both platforms require an age rating,
+  /// and KVKK/GDPR treat minors' data differently; the spec had no field for this.
+  birthDate DateTime? @db.Date
+
+  // --- Progression -------------------------------------------------------
+  /// XP inside the current prestige cycle. This is what determines `level`.
+  cycleXp Int @default(0)
+
+  /// Lifetime XP, never reset by Ascend. Drives all-time stats, not level.
+  /// BigInt because it is unbounded over years of play.
+  lifetimeXp BigInt @default(0)
+
+  /// Denormalised from cycleXp for cheap sorting; XpLedger remains the source of truth.
+  level     Int        @default(1)
+  prestige  Int        @default(0)
+  classType ClassType?
+
+  /// Stats accumulate raw XP; the displayed point value is derived via
+  /// statPointsFromXp(). Storing rounded points per session discarded every session
+  /// worth less than one point — a 15-minute meditation earns ~18 XP, so floor(18/20)
+  /// is zero and a daily meditator gained 1 WIS in a fortnight.
+  strengthXp     Int @default(0)
+  enduranceXp    Int @default(0)
+  intelligenceXp Int @default(0)
+  wisdomXp       Int @default(0)
+  charismaXp     Int @default(0)
+  dexterityXp    Int @default(0)
+
+  /// Streak freezes held. The spec offered "streak freezing" twice as the humane
+  /// alternative to punishment but never modelled it.
+  streakFreezes Int @default(2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Soft delete. A KVKK erasure request must be honoured without orphaning the
+  /// sessions that other users' aggregates were computed from; the hard delete runs
+  /// as a scheduled job after the retention window.
+  deletedAt DateTime?
+
+  habits     Habit[]
+  sessions   Session[]
+  xpLedger   XpLedger[]
+  dailyUsage DailyUsage[]
+
+  @@index([lifetimeXp(sort: Desc)])
+  @@index([deletedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Habit
+// ---------------------------------------------------------------------------
+
+model Habit {
+  id     String @id @default(cuid())
+  userId String
+
+  name     String   @db.VarChar(80)
+  category Category
+
+  /// Which stat this habit feeds. Category alone is not enough: running and weight
+  /// training are both FITNESS but feed END and STR. Null falls back to the
+  /// category default in @habitwar/domain.
+  stat Stat?
+
+  targetMinutes Int
+  frequency     Frequency @default(DAILY)
+  colorHex      String    @default("#6366F1") @db.VarChar(7)
+
+  currentStreak Int @default(0)
+  longestStreak Int @default(0)
+
+  /// Local calendar day (YYYY-MM-DD) of the last completion, in the user's timezone.
+  /// Stored as a date key rather than a timestamp so streak arithmetic never has to
+  /// re-derive "which day was that for this user".
+  lastCompletedDate String? @db.VarChar(10)
+
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions Session[]
+
+  @@index([userId, isArchived])
+}
+
+// ---------------------------------------------------------------------------
+// Session
+// ---------------------------------------------------------------------------
+
+model Session {
+  id      String @id @default(cuid())
+  userId  String
+  habitId String
+
+  /// Client-generated idempotency key. Without it a retried "complete" request
+  /// awards XP twice — the spec's API had no protection against this.
+  clientRequestId String @unique
+
+  startedAt   DateTime
+  endedAt     DateTime?
+  /// Authoritative duration, computed server-side from startedAt/endedAt.
+  /// Never accepted from the client.
+  durationSec Int?
+
+  status SessionStatus @default(ACTIVE)
+
+  /// Times the session was interrupted; feeds the focus quality multiplier.
+  interruptions Int @default(0)
+
+  xpAwarded  Int @default(0)
+  statXp     Int @default(0)
+
+  /// Full multiplier breakdown, so any award can be re-derived and explained.
+  multiplierData Json?
+
+  verification Verification @default(TIMER_ONLY)
+  proofUrl     String?
+
+  /// Set by the anomaly scan. Flagged sessions stay visible to their owner but are
+  /// excluded from rankings.
+  isFlagged  Boolean   @default(false)
+  flagReason String?
+  flaggedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  habit    Habit      @relation(fields: [habitId], references: [id], onDelete: Cascade)
+  xpLedger XpLedger[]
+
+  @@index([userId, startedAt(sort: Desc)])
+  @@index([habitId, startedAt(sort: Desc)])
+  /// Serves the "close abandoned sessions" job and the single-active-session rule.
+  @@index([status, startedAt])
+}
+
+// ---------------------------------------------------------------------------
+// XP ledger
+// ---------------------------------------------------------------------------
+
+/// Append-only record of every XP movement.
+///
+/// The spec stored XP only as a running total on User, which makes an incorrect
+/// award unrecoverable and the "shadow correction" enforcement it describes
+/// impossible to implement or audit. User.cycleXp is a cache of this table.
+model XpLedger {
+  id     String @id @default(cuid())
+  userId String
+
+  /// Signed: positive for awards, negative for corrections and reversals.
+  amount Int
+  reason XpReason
+
+  /// Present for SESSION_AWARD and its reversals.
+  sessionId String?
+
+  /// Human-readable justification, shown to the user on request. An automated
+  /// negative decision the user cannot see or contest is exactly what KVKK m.11
+  /// and GDPR art. 22 are about.
+  note String?
+
+  createdAt DateTime @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([sessionId])
+}
+
+// ---------------------------------------------------------------------------
+// Daily usage
+// ---------------------------------------------------------------------------
+
+/// Per-day, per-category minutes already credited at full rate.
+///
+/// The XP engine needs this to apply daily caps. Deriving it by summing sessions on
+/// every request would make the hottest write path scan a user's whole history.
+model DailyUsage {
+  id     String @id @default(cuid())
+  userId String
+
+  /// Local calendar day (YYYY-MM-DD) in the user's timezone.
+  dateKey  String   @db.VarChar(10)
+  category Category
+
+  fullRateMinutes Int @default(0)
+  overCapMinutes  Int @default(0)
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dateKey, category])
+  @@index([userId, dateKey])
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Category {
+  FITNESS
+  STUDY
+  MINDFULNESS
+  CREATIVE
+  SOCIAL
+  HEALTH
+  SKILL
+}
+
+enum Stat {
+  STR
+  END
+  INT
+  WIS
+  CHA
+  DEX
+}
+
+enum ClassType {
+  SCHOLAR
+  BERSERKER
+  BARD
+  MONK
+  RANGER
+  ARTISAN
+}
+
+enum SessionStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+  INVALIDATED
+}
+
+/// MANUAL_ENTRY was missing from the spec's enum even though §4 Layer 1 defines a
+/// 30% XP rule for it — the rule was unenforceable as specified.
+enum Verification {
+  MANUAL_ENTRY
+  TIMER_ONLY
+  HEALTH_DATA
+  PHOTO_PROOF
+  PEER_VERIFIED
+}
+
+enum XpReason {
+  SESSION_AWARD
+  SESSION_REVERSAL
+  ANOMALY_CORRECTION
+  MANUAL_ADJUSTMENT
+  PRESTIGE_RESET
+}
+
+enum Frequency {
+  DAILY
+  WEEKLY
+  CUSTOM
+}
