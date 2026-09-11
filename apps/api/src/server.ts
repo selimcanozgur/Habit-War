@@ -8,16 +8,25 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import type { Env } from './env.js';
-import authPlugin from './plugins/auth.js';
+import authPlugin, { type AuthPluginOptions } from './plugins/auth.js';
 import errorHandlerPlugin from './plugins/error-handler.js';
 import prismaPlugin from './plugins/prisma.js';
 import { habitRoutes } from './modules/habits/routes.js';
 import { healthRoutes } from './modules/health/routes.js';
 import { sessionRoutes } from './modules/sessions/routes.js';
+import { clerkWebhookRoutes } from './modules/webhooks/clerk.js';
 
 const API_PREFIX = '/v1';
 
-export async function buildServer(env: Env): Promise<FastifyInstance> {
+export interface BuildServerOptions {
+  /** Auth overrides. Tests inject stub token/identity resolvers here. */
+  readonly auth?: Omit<AuthPluginOptions, 'env'>;
+}
+
+export async function buildServer(
+  env: Env,
+  options: BuildServerOptions = {},
+): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
       level: env.LOG_LEVEL,
@@ -29,11 +38,22 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
 
   await app.register(errorHandlerPlugin);
   await app.register(prismaPlugin);
-  await app.register(authPlugin);
+  await app.register(authPlugin, { env, ...options.auth });
 
   await app.register(healthRoutes);
   await app.register(habitRoutes, { prefix: API_PREFIX });
   await app.register(sessionRoutes, { prefix: API_PREFIX });
+
+  // Registered only when a signing secret exists. Without one the route could not
+  // verify signatures, and an unverified webhook that writes to the user table is
+  // worse than no webhook at all.
+  if (env.CLERK_WEBHOOK_SIGNING_SECRET) {
+    await app.register(clerkWebhookRoutes, {
+      signingSecret: env.CLERK_WEBHOOK_SIGNING_SECRET,
+    });
+  } else {
+    app.log.warn('CLERK_WEBHOOK_SIGNING_SECRET not set: the Clerk webhook route is disabled');
+  }
 
   return app;
 }

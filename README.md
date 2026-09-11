@@ -56,7 +56,8 @@ Then:
 
 ```bash
 curl localhost:3000/health/ready
-curl localhost:3000/v1/habits -H "x-dev-user-id: <id printed by the seed>"
+curl localhost:3000/v1/habits -H "x-dev-user-id: <id printed by the seed>"   # AUTH_MODE=dev
+curl localhost:3000/v1/habits -H "authorization: Bearer <clerk session jwt>"   # AUTH_MODE=clerk
 ```
 
 ### Everyday commands
@@ -81,13 +82,16 @@ curl localhost:3000/v1/habits -H "x-dev-user-id: <id printed by the seed>"
 - Seed script producing realistic two-week history.
 - Verified end to end: migration applied, seed run, session started and completed
   against a live Postgres.
+- Clerk auth: JWT verification, just-in-time account provisioning, and a
+  signature-verified webhook for profile updates and deletions. 35 API tests.
 
 **Not done yet**
 
-- Auth is a development-only header (`x-dev-user-id`). Clerk JWT verification and the
-  user-sync webhook are not wired; `src/plugins/auth.ts` refuses to boot in production.
-- No social layer, leagues, guilds, or realtime. No mobile app yet.
-- No rate limiting and no integration tests against a real database.
+- No rate limiting.
+- Clerk is wired but untested against a real tenant — no Clerk account exists yet.
+  Token verification and identity lookup are injected, so the paths around them are
+  tested; the Clerk calls themselves are not.
+- No social layer, no leagues or guilds, no realtime, no mobile app.
 
 ---
 

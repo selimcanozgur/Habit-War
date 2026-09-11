@@ -7,7 +7,7 @@
     "dev": "tsx watch src/main.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
@@ -15,6 +15,7 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
+    "@clerk/backend": "^3.17.2",
     "@habitwar/domain": "*",
     "@prisma/client": "^6.3.1",
     "fastify": "^5.2.1",
