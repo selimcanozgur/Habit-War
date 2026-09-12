@@ -9,3 +9,7 @@ coverage/
 .expo/
 .turbo/
 *.tsbuildinfo
+
+# Expo
+.expo/
+apps/mobile/.expo/
