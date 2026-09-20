@@ -125,8 +125,13 @@ describe('authorisation boundary', () => {
       expect(response.statusCode, `${label} leaked to a non-moderator`).toBe(403);
     }
 
-    // The guard must refuse before anything happens, not after.
-    expect(await prisma.moderationAction.count()).toBe(0);
+    // The guard must refuse before anything happens, not after. Scoped to this test's
+    // own subjects: a global count would also pick up rows left by any other test or
+    // by seeded data, and fail for reasons that have nothing to do with the guard.
+    const written = await prisma.moderationAction.count({
+      where: { OR: [{ subjectUserId: offenderId }, { subjectPostId: postId }] },
+    });
+    expect(written).toBe(0);
     const post = await prisma.post.findUniqueOrThrow({ where: { id: postId } });
     expect(post.hiddenAt).toBeNull();
   });

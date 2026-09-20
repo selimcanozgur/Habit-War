@@ -32,6 +32,9 @@ import {
 } from '@habitwar/domain';
 
 import { conflict, notFound, unprocessable } from '../../lib/errors.js';
+import { FeedService } from '../feed/service.js';
+import { evaluateAchievements } from '../game/achievements.js';
+import { resolveEventMultiplier } from '../game/seasons.js';
 
 /** Injectable clock — keeps the service deterministic under test. */
 export type Clock = () => Date;
@@ -39,6 +42,13 @@ export type Clock = () => Date;
 export interface SessionServiceDeps {
   readonly prisma: PrismaClient;
   readonly now: Clock;
+  /** Optional logger. After-effect failures are logged, never thrown. */
+  readonly log?: { error: (obj: unknown, msg: string) => void };
+  /**
+   * Feed writer, injectable so a test can prove an after-effect failure does not
+   * cost the user their XP. Defaults to a FeedService sharing this clock.
+   */
+  readonly feed?: Pick<FeedService, 'upsertDailyDigest'>;
 }
 
 export interface StartSessionInput {
@@ -70,6 +80,8 @@ export interface CompleteSessionResult {
   readonly xpForNextLevel: number;
   readonly streak: number;
   readonly suggestedClass: string | null;
+  /** Badge codes unlocked by this session, if any. */
+  readonly unlockedAchievements: readonly string[];
   /** True when this call replayed an already-completed session rather than scoring it. */
   readonly replayed: boolean;
 }
@@ -77,10 +89,15 @@ export interface CompleteSessionResult {
 export class SessionService {
   readonly #prisma: PrismaClient;
   readonly #now: Clock;
+  readonly #feed: Pick<FeedService, 'upsertDailyDigest'>;
+  readonly #log: SessionServiceDeps['log'];
 
-  constructor({ prisma, now }: SessionServiceDeps) {
+  constructor({ prisma, now, log, feed }: SessionServiceDeps) {
     this.#prisma = prisma;
     this.#now = now;
+    this.#log = log;
+    // Shares the clock so a digest lands on the same local day the session did.
+    this.#feed = feed ?? new FeedService({ prisma, now });
   }
 
   /**
@@ -169,6 +186,11 @@ export class SessionService {
       user.streakFreezes,
     );
 
+    // Server-owned, never accepted from the client: the event multiplier is the one
+    // input to the XP formula a client could most profitably lie about. Resolved from
+    // the active season; 1.0 when none is running.
+    const eventMultiplier = await resolveEventMultiplier(this.#prisma, now);
+
     const result = calculateSessionXp({
       durationSec,
       category,
@@ -178,8 +200,7 @@ export class SessionService {
       interruptions,
       characterClass: user.classType,
       prestige: user.prestige,
-      // Season events are server-owned; wired up with the seasons module in Phase 2.
-      eventMultiplier: 1,
+      eventMultiplier,
       minutesTodayInCategory,
       minutesTodayTotal,
     });
@@ -277,6 +298,15 @@ export class SessionService {
     const statPointsGained =
       statPointsFromXp(statXpAfter[stat]) - statPointsFromXp(statXpBefore[stat]);
 
+    const unlocked = await this.#runAfterEffects({
+      userId,
+      habitName: session.habit.name,
+      category,
+      xp: result.xp,
+      minutes: result.breakdown.fullRateMinutes,
+      at: now,
+    });
+
     return {
       session: updatedSession,
       xp: result.xp,
@@ -290,8 +320,53 @@ export class SessionService {
       xpForNextLevel: progress.xpForNextLevel,
       streak: streakUpdate.current,
       suggestedClass: user.classType ?? suggestClass(deriveStatSheet(statXpAfter), progress.level),
+      unlockedAchievements: unlocked,
       replayed: false,
     };
+  }
+
+  /**
+   * Side effects that follow a completed session: badge evaluation and the daily
+   * digest post.
+   *
+   * Deliberately OUTSIDE the award transaction. Both are secondary to the XP itself,
+   * and rolling back a correctly-earned session because a feed post failed to write
+   * would be the wrong trade — the user would lose real minutes to a cosmetic
+   * failure. Each is isolated so one failing cannot take the other with it.
+   *
+   * Both are safe to repeat: `evaluateAchievements` is idempotent on
+   * `@@unique([userId, achievementId])`, and `upsertDailyDigest` is an upsert on
+   * `@@unique([authorId, digestDate])`. The caller is protected from double-counting
+   * upstream by `Session.clientRequestId`.
+   */
+  async #runAfterEffects(input: {
+    userId: string;
+    habitName: string;
+    category: Category;
+    xp: number;
+    minutes: number;
+    at: Date;
+  }): Promise<string[]> {
+    const { userId, category, xp, minutes, at } = input;
+
+    let unlocked: string[] = [];
+
+    try {
+      const result = await evaluateAchievements(this.#prisma, userId, at);
+      unlocked = [...result.unlocked];
+    } catch (error) {
+      this.#log?.error({ err: error, userId }, 'achievement evaluation failed after a session');
+    }
+
+    // The spec's answer to feed spam: automatic session posts collapse into one
+    // digest per day. A standalone SESSION_COMPLETE post stays a manual choice.
+    try {
+      await this.#feed.upsertDailyDigest({ userId, xp, minutes, category, at });
+    } catch (error) {
+      this.#log?.error({ err: error, userId }, 'daily digest upsert failed after a session');
+    }
+
+    return unlocked;
   }
 
   /** Abandons an active session. No XP, no streak change. */
@@ -350,6 +425,7 @@ export class SessionService {
       xpForNextLevel: progress.xpForNextLevel,
       streak: session.habit.currentStreak,
       suggestedClass: user.classType,
+      unlockedAchievements: [],
       replayed,
     };
   }
