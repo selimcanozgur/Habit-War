@@ -19,13 +19,28 @@
 import type { NotificationType, Prisma, PrismaClient } from '@prisma/client';
 
 import { notFound } from '../../lib/errors.js';
+import { SafetyService } from '../safety/service.js';
 
 /** Injectable clock, matching the convention in SessionService. */
 export type Clock = () => Date;
 
+/**
+ * Where a swallowed notification failure goes.
+ *
+ * `create` is called from inside other people's write paths, and a failure there must
+ * not roll back the like or the friend request that caused it (see `createSafely`).
+ * "Must not roll back" is not the same as "must be invisible", though: a notification
+ * table that has quietly stopped being written to is exactly the kind of outage
+ * nobody notices for a month. Routes may pass `app.log.error`; the default writes to
+ * stderr so the failure is at least on the record.
+ */
+export type NotificationErrorSink = (error: unknown, input: CreateNotificationInput) => void;
+
 export interface NotificationServiceDeps {
   readonly prisma: PrismaClient;
   readonly now: Clock;
+  /** Overrides where `createSafely` reports a swallowed failure. */
+  readonly onError?: NotificationErrorSink | undefined;
 }
 
 export interface CreateNotificationInput {
@@ -43,8 +58,9 @@ export interface CreateNotificationInput {
 /**
  * The spec's own risk table caps notifications at three per day, and the audit found
  * the feature set generates far more demand than that. The cap is not enforced here
- * — that belongs to the delivery job, which can see the whole day — but the constant
- * lives with the code that will need it.
+ * — that belongs to the delivery path, which can see the whole day — but the constant
+ * lives with the code that will need it. `push.ts` is what enforces it; see
+ * `isSubjectToDailyLimit` there for which types the cap binds and why.
  */
 export const DAILY_PUSH_LIMIT = 3;
 
@@ -55,18 +71,47 @@ const MAX_PAGE_SIZE = 100;
 export class NotificationService {
   readonly #prisma: PrismaClient;
   readonly #now: Clock;
+  readonly #safety: SafetyService;
+  readonly #onError: NotificationErrorSink;
 
-  constructor({ prisma, now }: NotificationServiceDeps) {
+  constructor({ prisma, now, onError }: NotificationServiceDeps) {
     this.#prisma = prisma;
     this.#now = now;
+    // Blocks are enforced here rather than re-implemented per caller; SafetyService
+    // owns the rule and is the only place it is written down.
+    this.#safety = new SafetyService({ prisma, now });
+    this.#onError =
+      onError ??
+      ((error, input) => {
+        // eslint-disable-next-line no-console -- last-resort sink; see NotificationErrorSink.
+        console.error('[notifications] failed to record notification', input.type, error);
+      });
   }
 
   /**
    * Records a notification.
    *
-   * Self-notifications are dropped rather than rejected: liking your own post is
-   * legal, it just should not ping you. Callers would otherwise all need the same
-   * guard, and one of them would forget.
+   * Three guards, all of them here rather than at the call sites, because a guard
+   * that has to be repeated eight times is a guard that will be missing from the
+   * ninth:
+   *
+   *  1. SELF. Self-notifications are dropped rather than rejected: liking your own
+   *     post is legal, it just should not ping you.
+   *  2. DELETED RECIPIENT. A KVKK-erased account is not notified.
+   *  3. BLOCKS, IN BOTH DIRECTIONS. A notification is content from one user to
+   *     another, so it is subject to the same rule as the feed: if either party has
+   *     blocked the other, nothing arrives. Leaving this out would make the inbox the
+   *     one surface a blocked user can still reach — "X liked your post" from someone
+   *     you blocked is exactly the contact the block exists to end, and it also
+   *     re-exposes their handle and avatar through the actor join in `list`.
+   *     `SafetyService.isBlockedEitherWay` is the pairwise form of `blockedUserIds`,
+   *     the helper every other module filters on; the pairwise form is used because a
+   *     notification has exactly one actor, and loading the recipient's entire block
+   *     set to answer a one-row question turns every like into a scan.
+   *
+   * System notifications (`actorId` null — moderation, seasons) skip 1 and 3 by
+   * construction: there is no actor to be blocked, and a user must not be able to
+   * block their way out of a suspension notice.
    */
   async create(input: CreateNotificationInput): Promise<void> {
     if (input.actorId && input.actorId === input.userId) return;
@@ -77,7 +122,51 @@ export class NotificationService {
     });
     if (!recipient) return; // Deleted account: nothing to notify.
 
+    if (input.actorId && (await this.#safety.isBlockedEitherWay(input.userId, input.actorId))) {
+      return;
+    }
+
     await this.#prisma.notification.create({ data: this.#toRow(input) });
+  }
+
+  /**
+   * `create`, with failures swallowed.
+   *
+   * THIS IS THE FORM EVERY SOCIAL CALL SITE USES. The notification is a consequence
+   * of the like, the follow or the duel invitation — never a precondition of it. If
+   * the notification write fails, the like must still stand: rolling back a user's
+   * action because we could not tell someone else about it inverts the importance of
+   * the two writes, and the user would see their like disappear for a reason that has
+   * nothing to do with them.
+   *
+   * Moderation deliberately does NOT use this; see `modules/moderation/service.ts`,
+   * where the notice is written inside the enforcement transaction instead.
+   */
+  async createSafely(input: CreateNotificationInput): Promise<void> {
+    try {
+      await this.create(input);
+    } catch (error) {
+      this.#onError(error, input);
+    }
+  }
+
+  /**
+   * The display name to put in notification copy.
+   *
+   * Needed because the copy is rendered at write time (see `copy.ts`) and most call
+   * sites only hold the actor's id — they acted as the actor, so they never had to
+   * load their own profile. One indexed primary-key read on a path that already does
+   * several is an acceptable price for a lock-screen line that says who did the thing.
+   *
+   * The fallback is deliberate rather than a throw: a missing profile must not be
+   * able to fail the action the notification is about.
+   */
+  async actorDisplayName(userId: string): Promise<string> {
+    const user = await this.#prisma.user.findUnique({
+      where: { id: userId },
+      select: { displayName: true },
+    });
+    return user?.displayName ?? 'Bir kullanıcı';
   }
 
   /**

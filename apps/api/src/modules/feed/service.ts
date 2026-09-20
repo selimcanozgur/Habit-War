@@ -15,6 +15,8 @@ import type { Prisma, PrismaClient, Post } from '@prisma/client';
 import { localDateKey } from '@habitwar/domain';
 
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js';
+import { copy } from '../notifications/copy.js';
+import { NotificationService } from '../notifications/service.js';
 
 /** Injectable clock — keeps the service deterministic under test. */
 export type Clock = () => Date;
@@ -22,6 +24,12 @@ export type Clock = () => Date;
 export interface FeedServiceDeps {
   readonly prisma: PrismaClient;
   readonly now: Clock;
+  /**
+   * Injectable so a test can assert on what was recorded without a second database
+   * read. Defaults to a service over the same prisma/clock, so nothing else has to
+   * change to wire it up.
+   */
+  readonly notifications?: NotificationService | undefined;
 }
 
 export type FeedScope = 'friends' | 'discover';
@@ -180,10 +188,12 @@ function keysetAfter(position: CursorPosition): Prisma.PostWhereInput {
 export class FeedService {
   readonly #prisma: PrismaClient;
   readonly #now: Clock;
+  readonly #notifications: NotificationService;
 
-  constructor({ prisma, now }: FeedServiceDeps) {
+  constructor({ prisma, now, notifications }: FeedServiceDeps) {
     this.#prisma = prisma;
     this.#now = now;
+    this.#notifications = notifications ?? new NotificationService({ prisma, now });
   }
 
   // -------------------------------------------------------------------------
@@ -338,6 +348,21 @@ export class FeedService {
           data: { likeCount: { increment: 1 } },
         }),
       ]);
+
+      // Only on a genuinely new like, and only after the counter transaction has
+      // committed. The endpoint is idempotent, so notifying on every call would ping
+      // the author again for every retry of a response the client never saw — and
+      // unlike/re-like is the cheapest way there is to farm someone's attention.
+      // Never inside the transaction: see `NotificationService.createSafely`.
+      await this.#notifications.createSafely({
+        userId: post.authorId,
+        actorId: userId,
+        type: 'POST_LIKE',
+        ...copy.postLike(await this.#notifications.actorDisplayName(userId)),
+        targetType: 'POST',
+        targetId: postId,
+      });
+
       return { likeCount: updated.likeCount, liked: true };
     } catch (error) {
       // Two concurrent likes from the same user: the loser hits the unique index and
@@ -453,6 +478,20 @@ export class FeedService {
         data: { commentCount: { increment: 1 } },
       }),
     ]);
+
+    // The target is the PARENT, not the reply: tapping the notification has to open
+    // the thread the comment lives in, and a reply rendered on its own is a sentence
+    // without the post it answers. The excerpt is carried in the body so the author
+    // can tell a "tebrikler" from an insult without opening the app.
+    await this.#notifications.createSafely({
+      userId: parent.authorId,
+      actorId: userId,
+      type: 'POST_COMMENT',
+      ...copy.postComment(await this.#notifications.actorDisplayName(userId), content),
+      targetType: 'POST',
+      targetId: parentId,
+    });
+
     return reply;
   }
 

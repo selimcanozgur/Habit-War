@@ -20,6 +20,8 @@ import type { Friendship, PrismaClient } from '@prisma/client';
 import { levelProgress, statPointsFromXp } from '@habitwar/domain';
 
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js';
+import { copy } from '../notifications/copy.js';
+import { NotificationService } from '../notifications/service.js';
 
 /** Injectable clock — keeps the service deterministic under test. */
 export type Clock = () => Date;
@@ -27,6 +29,12 @@ export type Clock = () => Date;
 export interface FriendServiceDeps {
   readonly prisma: PrismaClient;
   readonly now: Clock;
+  /**
+   * Injectable so a test can assert on what was recorded without a second database
+   * read. Defaults to a service over the same prisma/clock, so nothing else has to
+   * change to wire it up.
+   */
+  readonly notifications?: NotificationService | undefined;
 }
 
 /**
@@ -136,10 +144,12 @@ export function pairKeyFor(a: string, b: string): string {
 export class FriendService {
   readonly #prisma: PrismaClient;
   readonly #now: Clock;
+  readonly #notifications: NotificationService;
 
-  constructor({ prisma, now }: FriendServiceDeps) {
+  constructor({ prisma, now, notifications }: FriendServiceDeps) {
     this.#prisma = prisma;
     this.#now = now;
+    this.#notifications = notifications ?? new NotificationService({ prisma, now });
   }
 
   // -------------------------------------------------------------------------
@@ -259,26 +269,75 @@ export class FriendService {
         where: { id: existing.id },
         data: { status: 'ACCEPTED', acceptedAt: this.#now() },
       });
+      // The other side asked and is now owed the answer — FRIEND_ACCEPTED, not
+      // FRIEND_REQUEST: from their point of view nothing was requested of them.
+      await this.#notifyFriendAccepted(userId, existing.requesterId);
       return { friendship, autoAccepted: true };
     }
 
     const friendship = await this.#prisma.friendship.create({
       data: { requesterId: userId, addresseeId: target.id, pairKey, status: 'PENDING' },
     });
+
+    // Written after the row commits and never inside its transaction: a friend
+    // request that failed because the notification failed would be a worse bug than
+    // a request the recipient has to discover on the requests screen.
+    await this.#notifications.createSafely({
+      userId: target.id,
+      actorId: userId,
+      type: 'FRIEND_REQUEST',
+      ...copy.friendRequest(await this.#notifications.actorDisplayName(userId)),
+      // USER + the requester, so tapping opens the profile the request came from —
+      // which is where the accept button lives. There is no FRIENDSHIP target type.
+      targetType: 'USER',
+      targetId: userId,
+    });
+
     return { friendship, autoAccepted: false };
   }
 
   /** Accepts a pending request. Only the addressee may do this. */
   async accept(userId: string, friendshipId: string): Promise<Friendship> {
     const existing = await this.#loadPendingForDecision(userId, friendshipId);
-    return this.#prisma.friendship.update({
+    const friendship = await this.#prisma.friendship.update({
       where: { id: existing.id },
       data: { status: 'ACCEPTED', acceptedAt: this.#now() },
+    });
+
+    await this.#notifyFriendAccepted(userId, existing.requesterId);
+    return friendship;
+  }
+
+  /**
+   * Tells the original requester their request was accepted.
+   *
+   * Shared by the two paths that can accept one — an explicit `accept`, and a
+   * mutual request where B asking for A while A's request is pending IS the
+   * acceptance. Both owe the requester the same notice, and writing it twice is how
+   * the two drift apart.
+   *
+   * The actor is whoever accepted; the target is their profile, since that is what
+   * the requester will want to open.
+   */
+  async #notifyFriendAccepted(accepterId: string, requesterId: string): Promise<void> {
+    await this.#notifications.createSafely({
+      userId: requesterId,
+      actorId: accepterId,
+      type: 'FRIEND_ACCEPTED',
+      ...copy.friendAccepted(await this.#notifications.actorDisplayName(accepterId)),
+      targetType: 'USER',
+      targetId: accepterId,
     });
   }
 
   /**
    * Declines a pending request.
+   *
+   * DELIBERATELY SILENT. There is no FRIEND_DECLINED notification type and there
+   * should not be one: telling someone they were turned down is a message with no
+   * action attached, and the row's disappearance from their outgoing list already
+   * says it to anyone who looks. It also keeps a decline indistinguishable from a
+   * block, which is what makes blocking safe to use.
    *
    * The row is deleted rather than moved to a declined state: `FriendshipStatus` has
    * no such member, and keeping a rejected row under a unique `pairKey` would
@@ -324,12 +383,32 @@ export class FriendService {
 
     await this.#assertNotBlocked(userId, target.id);
 
+    const existing = await this.#prisma.follow.findUnique({
+      where: { followerId_followingId: { followerId: userId, followingId: target.id } },
+      select: { id: true },
+    });
+
     await this.#prisma.follow.upsert({
       where: { followerId_followingId: { followerId: userId, followingId: target.id } },
       create: { followerId: userId, followingId: target.id },
       // Nothing to change — the upsert exists purely to absorb the duplicate.
       update: {},
     });
+
+    // Only on a genuinely new follow. The endpoint is idempotent, so a client that
+    // retries a dropped response would otherwise ping the same person twice for one
+    // follow — and re-following after unfollowing is a known way to farm attention.
+    if (!existing) {
+      await this.#notifications.createSafely({
+        userId: target.id,
+        actorId: userId,
+        type: 'NEW_FOLLOWER',
+        ...copy.newFollower(await this.#notifications.actorDisplayName(userId)),
+        targetType: 'USER',
+        targetId: userId,
+      });
+    }
+
     return { followingId: target.id };
   }
 

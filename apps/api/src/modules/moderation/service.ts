@@ -16,11 +16,17 @@
  *  3. Nothing here hard-deletes. Hiding is reversible and suspension expires, so a
  *     mistaken call is recoverable — which is what makes it safe for one person to
  *     work the queue quickly.
+ *  4. THE SUBJECT IS TOLD. Every enforcement below writes a MODERATION_ACTION
+ *     notification for the user it lands on, and it writes it INSIDE the same
+ *     transaction as the sanction. See `#notifySubject` for why that is the one place
+ *     in the codebase where a notification is not best-effort.
  */
 
 import type { ModerationActionType, Prisma, PrismaClient, ReportStatus } from '@prisma/client';
 
 import { conflict, notFound, unprocessable } from '../../lib/errors.js';
+import { copy } from '../notifications/copy.js';
+import { NotificationService } from '../notifications/service.js';
 
 /** Injectable clock, matching the convention across the other services. */
 export type Clock = () => Date;
@@ -28,6 +34,12 @@ export type Clock = () => Date;
 export interface ModerationServiceDeps {
   readonly prisma: PrismaClient;
   readonly now: Clock;
+  /**
+   * Injectable so a test can assert on what was recorded without a second database
+   * read. Defaults to a service over the same prisma/clock, so nothing else has to
+   * change to wire it up.
+   */
+  readonly notifications?: NotificationService | undefined;
 }
 
 /**
@@ -81,10 +93,12 @@ export interface SuspendUserInput {
 export class ModerationService {
   readonly #prisma: PrismaClient;
   readonly #now: Clock;
+  readonly #notifications: NotificationService;
 
-  constructor({ prisma, now }: ModerationServiceDeps) {
+  constructor({ prisma, now, notifications }: ModerationServiceDeps) {
     this.#prisma = prisma;
     this.#now = now;
+    this.#notifications = notifications ?? new NotificationService({ prisma, now });
   }
 
   /**
@@ -185,6 +199,13 @@ export class ModerationService {
    * Closes a report without acting on the content.
    *
    * Recorded as a ModerationAction, not just a status flip — see the module note.
+   *
+   * THE ONLY PATH HERE THAT NOTIFIES NOBODY, and both silences are deliberate. The
+   * reported user is not told, because nothing happened to them and "someone reported
+   * you, we found nothing" hands them a grievance and, on a small graph, a very short
+   * list of who it must have been. The reporter is not told either: a per-report
+   * verdict turns the report button into a scoreboard and invites re-reporting until
+   * the answer changes.
    */
   async dismiss({ reportId, moderatorId, note }: ResolveReportInput): Promise<unknown> {
     const report = await this.#requireReport(reportId);
@@ -248,6 +269,9 @@ export class ModerationService {
           createdAt: at,
         },
       }),
+      // The author is the one person who can still see the post, so without this they
+      // would see it sitting there looking published while nobody else can read it.
+      this.#notifySubject(post.authorId, copy.postHidden(reason), { type: 'POST', id: postId }),
     ];
 
     if (reportId) writes.push(this.#resolveWrite(reportId, moderatorId, reason, at));
@@ -281,6 +305,12 @@ export class ModerationService {
           createdAt: at,
         },
       }),
+      // A reversal is owed as loudly as the sanction was. The author was told their
+      // post broke the rules; leaving them to notice on their own that we changed our
+      // mind keeps them believing a finding we have since withdrawn. The moderator's
+      // `reason` for the restore is NOT forwarded — it is an internal note, and the
+      // user only needs to know the restriction is gone.
+      this.#notifySubject(post.authorId, copy.postRestored(), { type: 'POST', id: postId }),
     ]);
     return updated;
   }
@@ -306,7 +336,10 @@ export class ModerationService {
 
     const target = await this.#prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
-      select: { id: true, role: true },
+      // `timezone` is selected for the notice: "12 Ekim'e kadar askıya alındı" has to
+      // mean the suspended user's 12 October, not the server's. Same reasoning as the
+      // day boundary for streaks and daily caps.
+      select: { id: true, role: true, timezone: true },
     });
     if (!target) throw notFound('User not found');
     if (target.role !== 'USER') {
@@ -331,6 +364,14 @@ export class ModerationService {
           expiresAt: until,
           createdAt: at,
         },
+      }),
+      // The notice that matters most. A suspended account can still read its inbox
+      // and export its data (see the route guard), which is exactly what makes
+      // writing this row worth doing: it is the only channel left that reaches the
+      // person, and it carries the end date the appeal is measured against.
+      this.#notifySubject(userId, copy.userSuspended(until, reason, target.timezone), {
+        type: 'USER',
+        id: userId,
       }),
     ];
 
@@ -364,6 +405,10 @@ export class ModerationService {
           createdAt: at,
         },
       }),
+      // Without this the user has to keep trying the app to discover the lock is off,
+      // and a reinstatement nobody hears about does not undo the harm of the days
+      // they spent locked out believing the suspension still had weeks to run.
+      this.#notifySubject(userId, copy.userReinstated(), { type: 'USER', id: userId }),
     ]);
     return { userId, suspendedUntil: null };
   }
@@ -398,11 +443,57 @@ export class ModerationService {
           createdAt: at,
         },
       }),
+      // A warning that is only recorded is not a warning, it is a trap: the whole
+      // argument for treating a later suspension as escalation rather than a
+      // first-strike surprise is that the user was given a chance to correct course.
+      // That chance only exists if they were told.
+      this.#notifySubject(userId, copy.userWarned(reason), { type: 'USER', id: userId }),
     ];
     if (reportId) writes.push(this.#resolveWrite(reportId, moderatorId, reason, at));
 
     const [action] = await this.#prisma.$transaction(writes);
     return action;
+  }
+
+  /**
+   * The notice that tells a user what was done to their account, as a write to be
+   * included in the enforcement transaction.
+   *
+   * THIS IS THE ONE NOTIFICATION IN THE CODEBASE THAT IS NOT BEST-EFFORT, and the
+   * difference is deliberate. Everywhere else a notification is a consequence of an
+   * action the user took, so `createSafely` swallows a failure rather than rolling
+   * back a like nobody should lose. Here the relationship is inverted: the sanction
+   * is done TO the user, and a suspension they were never told about is not a
+   * slightly degraded suspension — it is an account that stopped working for reasons
+   * the person cannot see, cannot date and therefore cannot appeal. The DSA's
+   * statement-of-reasons duty and KVKK's transparency principle both attach to the
+   * telling, not to the enforcing. So the two either both land or neither does, and
+   * a notification failure correctly fails the whole call: the moderator retries and
+   * ends up with one sanction and one notice, which is the only consistent pair.
+   *
+   * `buildRow` rather than `create` is what makes that possible — it returns the row
+   * without writing it, so the caller can put it in its own `$transaction` array.
+   *
+   * The actor is left NULL on purpose, matching the copy in `notifications/copy.ts`:
+   * a user who learns which moderator sanctioned them has a target. They learn WHAT
+   * happened, WHY and FOR HOW LONG, which is the whole of what an appeal needs.
+   */
+  #notifySubject(
+    userId: string,
+    text: { title: string; body: string | null },
+    target: { type: 'POST' | 'USER'; id: string },
+  ): Prisma.PrismaPromise<unknown> {
+    return this.#prisma.notification.create({
+      data: this.#notifications.buildRow({
+        userId,
+        actorId: null,
+        type: 'MODERATION_ACTION',
+        title: text.title,
+        body: text.body,
+        targetType: target.type,
+        targetId: target.id,
+      }),
+    });
   }
 
   /** Marks a report resolved as part of an enforcement transaction. */

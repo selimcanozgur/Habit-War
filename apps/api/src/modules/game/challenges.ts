@@ -35,6 +35,8 @@
 import type { Category, Challenge, ChallengeStatus, PrismaClient, User } from '@prisma/client';
 
 import { conflict, forbidden, notFound, unprocessable } from '../../lib/errors.js';
+import { copy, type DuelOutcome } from '../notifications/copy.js';
+import { NotificationService } from '../notifications/service.js';
 
 /** Injectable clock, matching `modules/sessions/service.ts`. */
 export type Clock = () => Date;
@@ -51,6 +53,12 @@ const LIVE_STATUSES: readonly ChallengeStatus[] = ['PENDING', 'ACTIVE'];
 export interface ChallengeServiceDeps {
   readonly prisma: PrismaClient;
   readonly now: Clock;
+  /**
+   * Injectable so a test can assert on what was recorded without a second database
+   * read. Defaults to a service over the same prisma/clock, so nothing else has to
+   * change to wire it up.
+   */
+  readonly notifications?: NotificationService | undefined;
 }
 
 export interface CreateChallengeInput {
@@ -107,10 +115,12 @@ const participantSelect = {
 export class ChallengeService {
   readonly #prisma: PrismaClient;
   readonly #now: Clock;
+  readonly #notifications: NotificationService;
 
-  constructor({ prisma, now }: ChallengeServiceDeps) {
+  constructor({ prisma, now, notifications }: ChallengeServiceDeps) {
     this.#prisma = prisma;
     this.#now = now;
+    this.#notifications = notifications ?? new NotificationService({ prisma, now });
   }
 
   /**
@@ -207,6 +217,25 @@ export class ChallengeService {
       include: { challenger: { select: participantSelect }, opponent: { select: participantSelect } },
     });
 
+    // After the row commits, never inside its transaction: a duel invitation that
+    // failed because the notification failed would be the worse bug — the opponent
+    // can still find a PENDING duel on the duels screen, but a duel that was never
+    // created cannot be found anywhere.
+    //
+    // The challenger's display name is already in hand from the lookup above, so this
+    // does NOT go through `actorDisplayName` — that helper exists for call sites that
+    // only hold an id, and using it here would be a second read of a row we have.
+    await this.#notifications.createSafely({
+      userId: opponent.id,
+      actorId: userId,
+      type: 'CHALLENGE_INVITE',
+      ...copy.challengeInvite(challenger.displayName, category, days),
+      // CHALLENGE, not USER: the accept and decline buttons live on the duel, and
+      // sending the opponent to a profile would make them hunt for the invitation.
+      targetType: 'CHALLENGE',
+      targetId: created.id,
+    });
+
     return this.#toView(created, userId);
   }
 
@@ -237,10 +266,29 @@ export class ChallengeService {
       include: { challenger: { select: participantSelect }, opponent: { select: participantSelect } },
     });
 
+    // The challenger asked and is now owed the answer. Their clock has just started,
+    // which is the part they cannot discover without being told: a duel they opened
+    // three days ago is off their screen by now.
+    await this.#notifications.createSafely({
+      userId: updated.challengerId,
+      actorId: userId,
+      type: 'CHALLENGE_ACCEPTED',
+      ...copy.challengeAccepted(updated.opponent.displayName, updated.category, days),
+      targetType: 'CHALLENGE',
+      targetId: updated.id,
+    });
+
     return this.#toView(updated, userId);
   }
 
-  /** Declines a PENDING duel. Only the opponent may decline. */
+  /**
+   * Declines a PENDING duel. Only the opponent may decline.
+   *
+   * DELIBERATELY SILENT, for the same reason `FriendService.decline` is: a "your duel
+   * was turned down" notice is a message with no action attached, and the row leaving
+   * the challenger's active list already says it. It also keeps a decline
+   * indistinguishable from a block.
+   */
   async decline(userId: string, challengeId: string): Promise<ChallengeView> {
     const challenge = await this.#loadForDecision(userId, challengeId);
 
@@ -329,9 +377,20 @@ export class ChallengeService {
    *
    * Idempotent on `settledAt`, which is what makes it safe to call from a read path:
    * the `status: 'ACTIVE'` filter means a second concurrent call finds nothing left
-   * to settle. Feed posts and notifications for the result are deliberately NOT
-   * emitted here — they belong to the settlement job, and emitting them from a GET
-   * would fire them on whoever happened to open the screen first.
+   * to settle.
+   *
+   * THE RESULT NOTICE IS EMITTED HERE, and the conditional update is what makes that
+   * safe. An earlier revision deferred it to "the settlement job" on the grounds that
+   * a GET must not fire notifications — but the underlying worry was double delivery,
+   * not the HTTP verb, and the `status: 'ACTIVE'` filter answers it directly: exactly
+   * one caller sees `count === 1` for a given duel, whoever they are and however many
+   * of them race. Deferring instead meant a duel that ended on Tuesday told nobody
+   * until a job that does not exist yet ran, which is the worse failure: the loser
+   * never learns they lost, and both players are left with a duel that simply stopped.
+   * When that job lands it calls this same path and inherits the same guarantee.
+   *
+   * Feed posts for the result are still not emitted here; a post is content, and
+   * writing content on someone's behalf from a read path is a different decision.
    */
   async #settleExpired(userId: string): Promise<void> {
     const now = this.#now();
@@ -368,11 +427,48 @@ export class ChallengeService {
             ? challenge.opponentId
             : null;
 
-      await this.#prisma.challenge.updateMany({
+      const settled = await this.#prisma.challenge.updateMany({
         where: { id: challenge.id, status: 'ACTIVE' },
         data: { status: 'COMPLETED', challengerXp, opponentXp, winnerId, settledAt: now },
       });
+      // Zero means somebody else settled this duel between the read and the write.
+      // They sent the notices; sending them again would double-notify both players.
+      if (settled.count === 0) continue;
+
+      await this.#notifyDuelEnded(challenge.challengerId, challenge.id, challengerXp, opponentXp);
+      await this.#notifyDuelEnded(challenge.opponentId, challenge.id, opponentXp, challengerXp);
     }
+  }
+
+  /**
+   * Tells one player how their duel finished.
+   *
+   * SYSTEM COPY — `actorId` stays null even though there is obviously another human
+   * involved. Two reasons: the sentence ("Düelloyu kazandın") is about the reader,
+   * not about the opponent, so naming them adds nothing; and a null actor means the
+   * notice survives the opponent being blocked, deleted or purged in the meantime.
+   * `NotificationService.create` drops an actor-bearing notification when either side
+   * has blocked the other, which would otherwise leave a player with a duel that
+   * never visibly ended.
+   *
+   * Scores are passed from the recipient's own side, so each player reads their own
+   * number first — "120 XP – 90 XP" has to mean something different to each of them.
+   */
+  async #notifyDuelEnded(
+    userId: string,
+    challengeId: string,
+    ownXp: number,
+    opponentXp: number,
+  ): Promise<void> {
+    const outcome: DuelOutcome = ownXp > opponentXp ? 'WON' : ownXp < opponentXp ? 'LOST' : 'DRAW';
+    await this.#notifications.createSafely({
+      userId,
+      actorId: null,
+      type: 'CHALLENGE_ENDED',
+      ...copy.challengeEnded(outcome, ownXp, opponentXp),
+      targetType: 'CHALLENGE',
+      targetId: challengeId,
+    });
   }
 
   /** Loads a PENDING duel the caller is entitled to accept or decline. */
