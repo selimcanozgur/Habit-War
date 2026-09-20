@@ -69,6 +69,17 @@ model User {
   /// alternative to punishment but never modelled it.
   streakFreezes Int @default(2)
 
+  /// Staff accounts are ordinary users with a role, not a separate table. A moderator
+  /// still has habits and a level; separating them would mean maintaining two
+  /// identities for one person and two auth paths for one login.
+  role UserRole @default(USER)
+
+  /// Suspension is a deadline, not a flag: almost every suspension is temporary, and
+  /// a boolean would need a second column plus a job to clear it. Null means active.
+  /// A far-future date is how a permanent suspension is expressed.
+  suspendedUntil   DateTime?
+  suspensionReason String?   @db.VarChar(500)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -111,6 +122,10 @@ model User {
   reportsAgainst  Report[] @relation("ReportReportedUser")
   /// Reports this user resolved, as a moderator.
   reportsReviewed Report[] @relation("ReportReviewer")
+
+  /// Moderator actions taken BY this user, and actions taken AGAINST them.
+  moderationActionsTaken    ModerationAction[] @relation("ModerationActor")
+  moderationActionsReceived ModerationAction[] @relation("ModerationSubject")
 
   blocksIssued  Block[] @relation("BlockBlocker")
   blocksAgainst Block[] @relation("BlockBlocked")
@@ -478,10 +493,20 @@ model Post {
   likeCount    Int @default(0)
   commentCount Int @default(0)
 
-  /// Set when a moderator hides a post after a Report. Not a delete: the row must
-  /// survive for the appeal path and the audit trail.
-  isHidden Boolean   @default(false)
+  /// Set when a moderator hides a post. Not a delete: the row must survive for the
+  /// appeal path and the audit trail.
+  ///
+  /// A single nullable timestamp, not a boolean plus a timestamp. Two columns for one
+  /// fact is a bug with a delay on it — the moderation service wrote one, the feed
+  /// read the other, and hiding a post silently did nothing. Null means visible.
   hiddenAt DateTime?
+
+  /// Why it was hidden. Shown to the author, because enforcement the affected person
+  /// cannot see or understand is indistinguishable from a bug.
+  hiddenReason String? @db.VarChar(500)
+
+  /// Moderator actions taken on this post.
+  moderationActions ModerationAction[]
 
   /// Author-initiated soft delete, mirroring User.deletedAt. Keeps child comments
   /// and open Reports from being orphaned by a deletion mid-investigation.
@@ -518,7 +543,7 @@ model Post {
   /// Comment thread pagination, oldest first.
   @@index([parentId, createdAt])
   /// Moderation queue.
-  @@index([isHidden, createdAt(sort: Desc)])
+  @@index([hiddenAt, createdAt(sort: Desc)])
 }
 
 /// One like per user per post.
@@ -838,6 +863,9 @@ model Report {
   /// — the moderation response window is audited against these rows.
   post Post? @relation(fields: [postId], references: [id], onDelete: SetNull)
 
+  /// Every action taken in response to this report.
+  moderationActions ModerationAction[]
+
   /// Moderation queue: oldest PENDING first, which is what a response SLA is
   /// measured on.
   @@index([status, createdAt])
@@ -1045,4 +1073,67 @@ enum ConsentType {
   ANALYTICS
   DATA_SHARING_SOCIAL
   AGE_CONFIRMATION
+}
+
+/// Append-only record of every moderator action.
+///
+/// Separate from `Report.status` on purpose. A report's status is its current state;
+/// this is the history of what was *done*, including actions taken with no report
+/// behind them (proactive removals) and actions later reversed. Store platforms and
+/// regulators both ask "what did you do, when, and who decided" — a mutable status
+/// column cannot answer that, and neither can a status that was overwritten.
+///
+/// Rows are never updated or deleted. A reversal is a new row of its own.
+model ModerationAction {
+  id String @id @default(cuid())
+
+  /// The moderator. SetNull rather than Cascade: a departed staff member must not
+  /// erase the decisions they made.
+  actorId String?
+
+  action ModerationActionType
+
+  /// Who or what was acted on. A post action also records its author as the subject,
+  /// so "everything ever done to this account" is one indexed query.
+  subjectUserId String?
+  subjectPostId String?
+
+  /// Set when the action came from a report; null for proactive moderation.
+  reportId String?
+
+  /// Why. Required — an unexplained enforcement action is indistinguishable from a
+  /// mistake when someone appeals it six months later.
+  reason String @db.VarChar(1000)
+
+  /// For suspensions: when it lifts. Null for actions with no duration.
+  expiresAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  actor       User?   @relation("ModerationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  subjectUser User?   @relation("ModerationSubject", fields: [subjectUserId], references: [id], onDelete: Cascade)
+  subjectPost Post?   @relation(fields: [subjectPostId], references: [id], onDelete: SetNull)
+  report      Report? @relation(fields: [reportId], references: [id], onDelete: SetNull)
+
+  /// "Show me this account's enforcement history" — the appeal and repeat-offender view.
+  @@index([subjectUserId, createdAt(sort: Desc)])
+  @@index([actorId, createdAt(sort: Desc)])
+  @@index([reportId])
+}
+
+enum UserRole {
+  USER
+  MODERATOR
+  ADMIN
+}
+
+enum ModerationActionType {
+  /// Report closed with no action. Recorded because "we looked and found nothing"
+  /// is itself a moderation response, and the SLA is measured on responses.
+  REPORT_DISMISSED
+  POST_HIDDEN
+  POST_RESTORED
+  USER_SUSPENDED
+  USER_REINSTATED
+  USER_WARNED
 }

@@ -223,7 +223,7 @@ export class FeedService {
       // one here would show a comment without the post it answers.
       parentId: null,
       deletedAt: null,
-      isHidden: false,
+      hiddenAt: null,
       // Social queries own this filter: there is no global Prisma middleware
       // excluding soft-deleted users, so every reader must apply it or a KVKK
       // erasure request would keep publishing its author's posts.
@@ -404,7 +404,7 @@ export class FeedService {
     const where: Prisma.PostWhereInput = {
       parentId,
       deletedAt: null,
-      isHidden: false,
+      hiddenAt: null,
       author: { deletedAt: null },
       // Blocks apply inside a thread too. Reading a blocked user's reply under a post
       // both parties can see is the most common way a block leaks.
@@ -657,7 +657,7 @@ export class FeedService {
       where: {
         id: postId,
         deletedAt: null,
-        isHidden: false,
+        hiddenAt: null,
         author: { deletedAt: null },
       },
     });

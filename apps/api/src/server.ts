@@ -16,6 +16,7 @@ import { friendRoutes } from './modules/friends/routes.js';
 import { gameRoutes } from './modules/game/routes.js';
 import { habitRoutes } from './modules/habits/routes.js';
 import { healthRoutes } from './modules/health/routes.js';
+import { moderationRoutes } from './modules/moderation/routes.js';
 import { notificationRoutes } from './modules/notifications/routes.js';
 import { profileRoutes } from './modules/profile/routes.js';
 import { safetyRoutes } from './modules/safety/routes.js';
@@ -58,6 +59,9 @@ export async function buildServer(
   await app.register(gameRoutes, { prefix: API_PREFIX });
   await app.register(notificationRoutes, { prefix: API_PREFIX });
   await app.register(safetyRoutes, { prefix: API_PREFIX });
+
+  // Staff-only. Its own preHandler is requireModerator, not requireUser.
+  await app.register(moderationRoutes, { prefix: API_PREFIX });
 
   // Registered only when a signing secret exists. Without one the route could not
   // verify signatures, and an unverified webhook that writes to the user table is

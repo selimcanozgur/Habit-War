@@ -120,6 +120,8 @@ interface SeedHabit {
 
 interface SeedPersona {
   readonly clerkId: string;
+  /** Staff role. Omitted for ordinary accounts. */
+  readonly role?: 'MODERATOR' | 'ADMIN';
   readonly username: string;
   readonly displayName: string;
   readonly email: string;
@@ -321,6 +323,32 @@ const PERSONAS: readonly SeedPersona[] = [
         targetMinutes: 20,
         colorHex: '#6366F1',
         dailyMinutes: [20, 20, 20, 0, 20, 20, 25],
+      },
+    ],
+  },
+  /**
+   * The staff account. Without one, nothing can open the moderation queue, so a seed
+   * that omits it leaves the entire enforcement surface untestable by hand.
+   *
+   * Deliberately an ordinary-looking account with habits and a level: staff are users
+   * with a role, and seeding one that way is what proves the two coexist.
+   */
+  {
+    clerkId: 'seed_moderator',
+    username: 'moderator',
+    displayName: 'Deniz (Moderatör)',
+    email: 'moderator@example.com',
+    bio: 'Topluluk kurallarını uyguluyorum.',
+    role: 'MODERATOR',
+    daysOfHistory: 7,
+    habits: [
+      {
+        name: 'Günlük tutma',
+        category: 'MINDFULNESS',
+        stat: 'WIS',
+        targetMinutes: 20,
+        colorHex: '#8B5CF6',
+        dailyMinutes: [20, 20, 0, 20, 25, 20, 20],
       },
     ],
   },
@@ -649,6 +677,7 @@ async function seedPersona(persona: SeedPersona, digestSeeds: DigestSeed[]): Pro
       email: persona.email,
       bio: persona.bio,
       timezone: TIMEZONE,
+      ...(persona.role ? { role: persona.role } : {}),
     },
   });
 
