@@ -33,6 +33,20 @@ async function errorHandlerPlugin(app: FastifyInstance): Promise<void> {
       });
     }
 
+    // Rate limiting throws its refusal rather than replying directly, so it arrives
+    // here. Given its own envelope it would be the one failure a client has to parse
+    // differently from all the others.
+    const limited = error as { statusCode?: number };
+    if (limited.statusCode === 429) {
+      return reply.status(429).send({
+        error: {
+          code: 'RATE_LIMITED',
+          message: 'Çok fazla istek gönderdin. Lütfen biraz bekle.',
+          details: { retryAfterMs: Number(reply.getHeader('retry-after') ?? 0) * 1000 },
+        },
+      });
+    }
+
     // Fastify's own schema validation failures arrive as FastifyError with `validation`
     // populated. The instanceof checks above widen `error` to unknown, so narrow it back.
     const fastifyError = error as FastifyError;

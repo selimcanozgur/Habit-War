@@ -11,6 +11,8 @@ import type { Env } from './env.js';
 import authPlugin, { type AuthPluginOptions } from './plugins/auth.js';
 import errorHandlerPlugin from './plugins/error-handler.js';
 import prismaPlugin from './plugins/prisma.js';
+import rateLimitPlugin from './plugins/rate-limit.js';
+import securityHeadersPlugin from './plugins/security-headers.js';
 import { feedRoutes } from './modules/feed/routes.js';
 import { friendRoutes } from './modules/friends/routes.js';
 import { gameRoutes } from './modules/game/routes.js';
@@ -44,6 +46,10 @@ export async function buildServer(
   });
 
   await app.register(errorHandlerPlugin);
+  await app.register(securityHeadersPlugin, { env });
+  // Registered before auth so an unauthenticated flood is rejected without a
+  // database read; the limiter falls back to IP when there is no user yet.
+  await app.register(rateLimitPlugin, { env });
   await app.register(prismaPlugin);
   await app.register(authPlugin, { env, ...options.auth });
 
