@@ -58,13 +58,43 @@ const schema = z
 
 export type Env = z.infer<typeof schema>;
 
+/**
+ * What the background worker needs.
+ *
+ * A strict subset, and deliberately so: the worker authenticates nobody, so it has
+ * no use for a Clerk secret and should not be handed one. Validating the full API
+ * schema there would have made `CLERK_SECRET_KEY` a hard requirement for starting a
+ * process that never calls Clerk — which means deploying the worker with a
+ * credential it cannot need, in a process whose whole job is to run unattended.
+ */
+const workerSchema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  DATABASE_URL: z.string().url(),
+  REDIS_URL: z.string().url().optional(),
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+});
+
+export type WorkerEnv = z.infer<typeof workerSchema>;
+
+function describeIssues(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => `  ${issue.path.join('.') || '(root)'}: ${issue.message}`)
+    .join('\n');
+}
+
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   const parsed = schema.safeParse(source);
   if (!parsed.success) {
-    const issues = parsed.error.issues
-      .map((issue) => `  ${issue.path.join('.') || '(root)'}: ${issue.message}`)
-      .join('\n');
-    throw new Error(`Invalid environment configuration:\n${issues}`);
+    throw new Error(`Invalid environment configuration:\n${describeIssues(parsed.error)}`);
+  }
+  return parsed.data;
+}
+
+/** Same contract as `loadEnv`, restricted to what the worker actually reads. */
+export function loadWorkerEnv(source: NodeJS.ProcessEnv = process.env): WorkerEnv {
+  const parsed = workerSchema.safeParse(source);
+  if (!parsed.success) {
+    throw new Error(`Invalid worker configuration:\n${describeIssues(parsed.error)}`);
   }
   return parsed.data;
 }

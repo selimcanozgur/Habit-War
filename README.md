@@ -78,14 +78,24 @@ curl localhost:3000/v1/habits -H "authorization: Bearer <clerk session jwt>"   #
 **Working end to end**
 
 - `@habitwar/domain`: XP scoring, level curve, stats and classes, streaks. 94 unit tests.
-- 18 Prisma models. Habits and sessions, the XP ledger, the social graph, posts and
-  likes, duels, achievements, seasons, and the moderation/consent tables.
-- ~65 endpoints across ten modules. 74 API tests, including route-registration,
-  client-contract and moderation suites.
+- 19 Prisma models. Habits and sessions, the XP ledger, the social graph, posts and
+  likes, duels, achievements, seasons, the moderation/consent tables and the
+  append-only enforcement trail.
+- ~65 endpoints across ten modules. 172 API tests, including route-registration,
+  client-contract, moderation, rate-limit and notification suites.
+- Rate limiting keyed on the caller's credential (not IP — one university NAT must
+  not share one budget), with per-route budgets sized for human behaviour.
+- Notifications for every event that concerns another person, plus Expo push delivery
+  enforcing the spec's 3-per-day cap.
 - Moderator tooling: a report queue worked oldest-first, post hiding and restoring,
   bounded account suspension, warnings, and an append-only audit trail. Staff routes
   sit behind a role guard; the seed ships a moderator account.
 - Clerk auth: JWT verification, just-in-time provisioning, signature-verified webhook.
+- Background jobs, in a separate worker process (`cd apps/api && npm run worker`):
+  the KVKK account-erasure purge, duel settlement for duels nobody opened, the stale
+  session sweep, and streak-at-risk reminders sent at each user's own 20:00. BullMQ on
+  Redis schedules them; the job logic is plain functions, tested against Postgres with
+  no queue in the way. The API still runs without Redis — the worker does not.
 - Expo app with five tabs: timer, feed, battle, friends, profile.
 - Seed builds a populated world — 5 users, 166 sessions, 19 posts, friendships both
   accepted and pending, two duels, badges and an active season. User ids are fixed,
@@ -93,14 +103,17 @@ curl localhost:3000/v1/habits -H "authorization: Bearer <clerk session jwt>"   #
 
 **Not done yet**
 
-- No rate limiting.
 - Clerk is wired but untested against a real tenant — no Clerk account exists yet.
-- The account-erasure purge job does not exist; `ACCOUNT_ERASURE_RETENTION_DAYS` is
-  defined and unconsumed, so erasure is effective but not completed.
-- Duels settle lazily, when a participant opens the screen. Two duellists who both
-  stop opening the app leave one unsettled.
+- Push delivery is written and tested but not yet driven by a queue: `deliver()` is
+  exported and nothing calls it on a schedule.
+- Notification preferences. The 3-per-day cap is currently the only throttle a user
+  gets, and they cannot choose what it applies to.
+- Two cascades still take a third party's data with a purged account: reports the
+  purged user filed, and duels they took part in. Both need a schema change; argued
+  at the top of `jobs/tasks/account-erasure.ts`.
 - No leagues. Five tiers of thirty needs 150 weekly actives; friend rankings stand in.
-- No guilds, no messaging, no realtime, no push delivery job.
+- No guilds, no messaging, no realtime.
+- The mobile app has never been opened on a device.
 
 ---
 
