@@ -22,7 +22,8 @@ habit-war/
 ├─ packages/
 │  └─ domain/                  @habitwar/domain — pure game rules, zero dependencies
 ├─ apps/
-│  └─ api/                     @habitwar/api — Fastify + Prisma
+│  ├─ api/                     @habitwar/api — Fastify + Prisma
+│  └─ mobile/                  @habitwar/mobile — Expo + expo-router
 └─ tools/                      Balance simulation and scripts
 ```
 
@@ -74,24 +75,32 @@ curl localhost:3000/v1/habits -H "authorization: Bearer <clerk session jwt>"   #
 
 ## Current state
 
-**Done — Phase 0 foundation**
+**Working end to end**
 
 - `@habitwar/domain`: XP scoring, level curve, stats and classes, streaks. 94 unit tests.
-- Prisma schema: `User`, `Habit`, `Session`, `XpLedger`, `DailyUsage`.
-- API: habit CRUD, session start/complete/abandon/active, health checks, uniform errors.
-- Seed script producing realistic two-week history.
-- Verified end to end: migration applied, seed run, session started and completed
-  against a live Postgres.
-- Clerk auth: JWT verification, just-in-time account provisioning, and a
-  signature-verified webhook for profile updates and deletions. 35 API tests.
+- 18 Prisma models. Habits and sessions, the XP ledger, the social graph, posts and
+  likes, duels, achievements, seasons, and the moderation/consent tables.
+- ~55 endpoints across nine modules. 51 API tests, including route-registration and
+  client-contract suites.
+- Clerk auth: JWT verification, just-in-time provisioning, signature-verified webhook.
+- Expo app with five tabs: timer, feed, battle, friends, profile.
+- Seed builds a populated world — 5 users, 166 sessions, 19 posts, friendships both
+  accepted and pending, two duels, badges and an active season. User ids are fixed,
+  so the dev client and the tests address the same rows.
 
 **Not done yet**
 
 - No rate limiting.
 - Clerk is wired but untested against a real tenant — no Clerk account exists yet.
-  Token verification and identity lookup are injected, so the paths around them are
-  tested; the Clerk calls themselves are not.
-- No social layer, no leagues or guilds, no realtime, no mobile app.
+- No moderator-side tooling. Reports land in a queue with no route to review or act on
+  them, and App Store 1.2 is assessed on the *response* to reports. This is the next
+  required piece before submission, not an optional one.
+- The account-erasure purge job does not exist; `ACCOUNT_ERASURE_RETENTION_DAYS` is
+  defined and unconsumed, so erasure is effective but not completed.
+- Duels settle lazily, when a participant opens the screen. Two duellists who both
+  stop opening the app leave one unsettled.
+- No leagues. Five tiers of thirty needs 150 weekly actives; friend rankings stand in.
+- No guilds, no messaging, no realtime, no push delivery job.
 
 ---
 

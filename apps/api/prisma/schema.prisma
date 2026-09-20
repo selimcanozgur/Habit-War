@@ -82,6 +82,41 @@ model User {
   xpLedger   XpLedger[]
   dailyUsage DailyUsage[]
 
+  // --- Social graph (Phase 1) ---------------------------------------------
+  /// Friendship and Follow both point at User twice, so every one of these back
+  /// references needs its relation name spelled out; Prisma cannot pair them up
+  /// otherwise.
+  friendshipsSent     Friendship[] @relation("FriendshipRequester")
+  friendshipsReceived Friendship[] @relation("FriendshipAddressee")
+  following           Follow[]     @relation("FollowFollower")
+  followers           Follow[]     @relation("FollowFollowing")
+
+  posts     Post[]     @relation("PostAuthor")
+  postLikes PostLike[]
+
+  notifications      Notification[] @relation("NotificationRecipient")
+  /// Notifications this user triggered for someone else.
+  actedNotifications Notification[] @relation("NotificationActor")
+  pushTokens         PushToken[]
+
+  // --- Game (Phase 1) ------------------------------------------------------
+  challengesIssued   Challenge[] @relation("ChallengeChallenger")
+  challengesReceived Challenge[] @relation("ChallengeOpponent")
+  challengesWon      Challenge[] @relation("ChallengeWinner")
+
+  achievements UserAchievement[]
+
+  // --- Moderation and legal ------------------------------------------------
+  reportsFiled    Report[] @relation("ReportReporter")
+  reportsAgainst  Report[] @relation("ReportReportedUser")
+  /// Reports this user resolved, as a moderator.
+  reportsReviewed Report[] @relation("ReportReviewer")
+
+  blocksIssued  Block[] @relation("BlockBlocker")
+  blocksAgainst Block[] @relation("BlockBlocked")
+
+  consentRecords ConsentRecord[]
+
   @@index([lifetimeXp(sort: Desc)])
   @@index([deletedAt])
 }
@@ -150,8 +185,8 @@ model Session {
   /// Times the session was interrupted; feeds the focus quality multiplier.
   interruptions Int @default(0)
 
-  xpAwarded  Int @default(0)
-  statXp     Int @default(0)
+  xpAwarded Int @default(0)
+  statXp    Int @default(0)
 
   /// Full multiplier breakdown, so any award can be re-derived and explained.
   multiplierData Json?
@@ -171,6 +206,10 @@ model Session {
   user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   habit    Habit      @relation(fields: [habitId], references: [id], onDelete: Cascade)
   xpLedger XpLedger[]
+
+  /// At most one SESSION_COMPLETE post per session (Post.sessionId is @unique), so
+  /// this is a to-one back reference, not a list.
+  post Post?
 
   @@index([userId, startedAt(sort: Desc)])
   @@index([habitId, startedAt(sort: Desc)])
@@ -300,4 +339,710 @@ enum Frequency {
   DAILY
   WEEKLY
   CUSTOM
+}
+
+// ---------------------------------------------------------------------------
+// Social graph — Friendship
+// ---------------------------------------------------------------------------
+
+/// Mutual-consent friendship (spec §5.2: "arkadaşlık — çift taraflı onay, rekabet
+/// için"). Kept separate from Follow on purpose: friendship gates competition
+/// (duels, peer verification, the friends feed), following only gates content
+/// discovery.
+///
+/// ONE ROW PER PAIR. `@@unique([requesterId, addresseeId])` alone is NOT enough:
+/// it constrains the ordered pair, so after A→B is stored nothing stops B→A being
+/// inserted as a second, independent row — two "pending" requests between the same
+/// two people, and later two ACCEPTED rows that every friend count and feed query
+/// would double.
+///
+/// Fix: `pairKey` is a normalised, direction-free pair identity — the two user ids
+/// sorted lexicographically and joined with ':' — carrying its own @unique. The
+/// database therefore rejects B→A while A→B exists, whatever the application does.
+/// The application MUST compute it as `[a, b].sort().join(':')` on insert; there is
+/// a single helper for this in the friendship service so the rule is not
+/// re-implemented per call site. (A Postgres generated column —
+/// `LEAST(a,b) || ':' || GREATEST(a,b)` — would enforce it without trusting the
+/// writer at all, but Prisma cannot express one, so the column is plain and the
+/// write path owns the invariant.)
+///
+/// `requesterId`/`addresseeId` are still stored because direction is meaningful:
+/// only the addressee may accept a PENDING row.
+model Friendship {
+  id          String @id @default(cuid())
+  requesterId String
+  addresseeId String
+
+  /// Normalised, direction-free pair identity — see the model comment.
+  /// Always `[requesterId, addresseeId].sort().join(':')`.
+  pairKey String @unique
+
+  status FriendshipStatus @default(PENDING)
+
+  /// Set when status first becomes ACCEPTED. Drives "friends since" and the
+  /// closeness term of the feed score.
+  acceptedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Two relations to the same model, so Prisma requires explicit relation names.
+  /// Cascade: a hard delete (the post-retention purge) removes the edge outright —
+  /// a friendship to a purged account has no meaning and nothing aggregates from it.
+  /// Soft-deleted users keep their rows; queries filter on `user.deletedAt`.
+  requester User @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee User @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  /// Retained alongside pairKey: it makes the directed lookup ("did I already send
+  /// to this person?") an index seek rather than a pairKey recomputation.
+  @@unique([requesterId, addresseeId])
+  /// "My accepted friends" — the driver of the feed's author set.
+  @@index([addresseeId, status])
+  @@index([requesterId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Social graph — Follow
+// ---------------------------------------------------------------------------
+
+/// One-directional follow (spec §5.2: "takip — tek taraflı, içerik keşfi için").
+/// Deliberately NOT modelled as a Friendship status: a follow needs no consent, is
+/// never symmetric, and must not grant the competitive privileges friendship grants.
+model Follow {
+  id          String @id @default(cuid())
+  followerId  String
+  followingId String
+
+  createdAt DateTime @default(now())
+
+  follower  User @relation("FollowFollower", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("FollowFollowing", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  /// Follower / following list pagination, newest first.
+  @@index([followingId, createdAt(sort: Desc)])
+  @@index([followerId, createdAt(sort: Desc)])
+}
+
+// ---------------------------------------------------------------------------
+// Feed — Post
+// ---------------------------------------------------------------------------
+
+/// A feed entry. Also a comment: a comment is a Post with `parentId` set, which
+/// keeps one moderation path (Report → Post) and one like path for both.
+///
+/// DAILY_DIGEST exists because of spec §5.1: automatic per-session posts turn the
+/// feed into spam, so the default is one aggregated post per user per day
+/// ("3 sessions, 145 XP"). The audit flagged that this default "cannot be
+/// represented in the schema" — `digestDate` + `digestStats` is that
+/// representation, and `@@unique([authorId, digestDate])` makes the aggregating job
+/// idempotent: it upserts one row all day instead of racing itself.
+model Post {
+  id       String @id @default(cuid())
+  authorId String
+
+  type PostType
+
+  /// User-written body. Optional: SESSION_COMPLETE / LEVEL_UP / ACHIEVEMENT /
+  /// CHALLENGE_RESULT / DAILY_DIGEST are generated and may carry no text at all.
+  content  String? @db.VarChar(2000)
+  imageUrl String?
+
+  /// Source session for SESSION_COMPLETE. @unique so one session can never produce
+  /// two feed posts (the completion retry path would otherwise duplicate them).
+  /// Null for every other type.
+  sessionId String? @unique
+
+  /// Set on ACHIEVEMENT posts.
+  userAchievementId String? @unique
+
+  /// Set on CHALLENGE_RESULT posts. Not unique — a duel produces one post per
+  /// participant.
+  challengeId String?
+
+  /// DAILY_DIGEST only: the author's local calendar day (YYYY-MM-DD) being
+  /// summarised, in their timezone — the same date-key convention as
+  /// Habit.lastCompletedDate and DailyUsage.dateKey.
+  digestDate String? @db.VarChar(10)
+
+  /// DAILY_DIGEST only: the rolled-up numbers ({ sessions, xp, minutes, categories }).
+  /// Json because the digest's shape is a presentation concern that will change far
+  /// more often than the schema should.
+  digestStats Json?
+
+  /// Comment parent. A self-relation must be named — Prisma cannot infer the two ends.
+  parentId String?
+
+  /// Denormalised counters. The feed renders them on every row; counting PostLike
+  /// and child Posts per row would make the hottest read path N+1.
+  likeCount    Int @default(0)
+  commentCount Int @default(0)
+
+  /// Set when a moderator hides a post after a Report. Not a delete: the row must
+  /// survive for the appeal path and the audit trail.
+  isHidden Boolean   @default(false)
+  hiddenAt DateTime?
+
+  /// Author-initiated soft delete, mirroring User.deletedAt. Keeps child comments
+  /// and open Reports from being orphaned by a deletion mid-investigation.
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author          User             @relation("PostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  session         Session?         @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  userAchievement UserAchievement? @relation(fields: [userAchievementId], references: [id], onDelete: SetNull)
+  challenge       Challenge?       @relation(fields: [challengeId], references: [id], onDelete: SetNull)
+
+  /// Deleting a parent post does NOT delete its comments (SetNull): losing a thread
+  /// would also lose evidence attached to Reports filed against the replies.
+  parent   Post?  @relation("PostThread", fields: [parentId], references: [id], onDelete: SetNull)
+  comments Post[] @relation("PostThread")
+
+  likes   PostLike[]
+  reports Report[]
+
+  /// Digest upsert target, and "show me my digest for day X".
+  @@unique([authorId, digestDate])
+  /// FEED QUERY. "Posts by the people I follow / am friends with, newest first,
+  /// cursor-paginated":
+  ///   WHERE authorId IN (...) AND parentId IS NULL AND deletedAt IS NULL
+  ///     AND (createdAt, id) < (:cursorCreatedAt, :cursorId)
+  ///   ORDER BY createdAt DESC, id DESC
+  /// authorId leads so the IN-list seeks, createdAt DESC supplies the ordering, and
+  /// id is the tiebreaker that makes the cursor total — two posts can share a
+  /// millisecond, and a createdAt-only cursor then skips or repeats rows at the
+  /// page boundary.
+  @@index([authorId, createdAt(sort: Desc), id(sort: Desc)])
+  /// Comment thread pagination, oldest first.
+  @@index([parentId, createdAt])
+  /// Moderation queue.
+  @@index([isHidden, createdAt(sort: Desc)])
+}
+
+/// One like per user per post.
+model PostLike {
+  id     String @id @default(cuid())
+  postId String
+  userId String
+
+  createdAt DateTime @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  /// "Did I like these posts?" across a page of the feed.
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+/// In-app notification. The spec caps notifications at 3/day per user while
+/// specifying eight competitive layers that all want to notify; the cap is enforced
+/// by the delivery job, and this table is what it counts against.
+model Notification {
+  id String @id @default(cuid())
+
+  /// Recipient.
+  userId String
+
+  /// Who caused it. Null for system notifications (season start, league rotation).
+  /// Modelled explicitly because the audit found the spec had no way to render
+  /// "X liked your post" at all.
+  actorId String?
+
+  type NotificationType
+
+  title String  @db.VarChar(120)
+  body  String? @db.VarChar(500)
+
+  /// Polymorphic target: what to open when tapped. Deliberately not a foreign key —
+  /// the target may be a Post, Challenge, UserAchievement, Season or User, and five
+  /// nullable FKs on the highest-volume table in the system is not worth the
+  /// referential integrity on a row that is disposable by design.
+  targetType NotificationTargetType?
+  targetId   String?
+
+  readAt DateTime?
+
+  /// Set once the push job has handed it to Expo; distinguishes "not sent yet" from
+  /// "sent, unread".
+  pushedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  user User @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// SetNull, not Cascade: a purged actor must not erase the recipient's history —
+  /// the notification degrades to "someone" rather than vanishing.
+  actor User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  /// Notification list, newest first.
+  @@index([userId, createdAt(sort: Desc)])
+  /// Unread badge count.
+  @@index([userId, readAt])
+}
+
+/// Expo push token, one row per device. The audit noted the spec has no endpoint and
+/// no model for push registration even though the whole retention loop assumes push
+/// works.
+model PushToken {
+  id     String @id @default(cuid())
+  userId String
+
+  /// ExponentPushToken[...]. Unique globally: a device that signs into a second
+  /// account must MOVE the token, not duplicate it, or the previous owner keeps
+  /// receiving the new owner's notifications.
+  token String @unique
+
+  platform DevicePlatform
+
+  /// Stable per-install id from the client, so a reinstall replaces its own row
+  /// instead of accumulating dead tokens.
+  deviceId String?
+
+  /// Set when Expo reports the token as DeviceNotRegistered. Not deleted, so the
+  /// delivery job can tell "never registered" from "registered then uninstalled".
+  disabledAt DateTime?
+
+  lastUsedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([userId, disabledAt])
+}
+
+// ---------------------------------------------------------------------------
+// Challenge (duel)
+// ---------------------------------------------------------------------------
+
+/// 1v1 duel (spec §5.4): two users, one category, 3-7 days, whoever earns more XP in
+/// that category wins.
+///
+/// The XP totals are materialised on the row rather than summed from XpLedger on
+/// read: the duel screen polls, and the ledger has no category dimension (category
+/// lives on Habit, two joins away). The scoring path updates them as it awards.
+model Challenge {
+  id String @id @default(cuid())
+
+  challengerId String
+  opponentId   String
+
+  /// Null means "any category" — a total-XP duel.
+  category Category?
+
+  status ChallengeStatus @default(PENDING)
+
+  /// Set on accept. A PENDING duel has no clock running, so both are nullable.
+  startsAt DateTime?
+  endsAt   DateTime?
+
+  challengerXp Int @default(0)
+  opponentXp   Int @default(0)
+
+  /// Resolved winner. Null while running, and still null after a draw or a
+  /// cancellation — so `status`, not this field, is the authority on whether the
+  /// duel finished.
+  winnerId String?
+
+  /// When the result was computed and the CHALLENGE_RESULT posts were emitted.
+  /// Makes the settlement job idempotent.
+  settledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  challenger User  @relation("ChallengeChallenger", fields: [challengerId], references: [id], onDelete: Cascade)
+  opponent   User  @relation("ChallengeOpponent", fields: [opponentId], references: [id], onDelete: Cascade)
+  /// SetNull: the duel row and the opponent's history survive a purged winner.
+  winner     User? @relation("ChallengeWinner", fields: [winnerId], references: [id], onDelete: SetNull)
+
+  posts Post[]
+
+  /// "My duels", newest first.
+  @@index([challengerId, status, createdAt(sort: Desc)])
+  @@index([opponentId, status, createdAt(sort: Desc)])
+  /// Settlement job: find ACTIVE duels whose clock has expired.
+  @@index([status, endsAt])
+}
+
+// ---------------------------------------------------------------------------
+// Achievements
+// ---------------------------------------------------------------------------
+
+/// Badge definition. Seeded data, not user data — hence the human-readable `code` as
+/// the stable identity the game logic references, so a badge can be renamed without
+/// breaking the rule that awards it.
+model Achievement {
+  id   String @id @default(cuid())
+  code String @unique @db.VarChar(60)
+
+  name        String  @db.VarChar(80)
+  description String  @db.VarChar(300)
+  iconUrl     String?
+
+  category AchievementCategory
+  tier     AchievementTier     @default(BRONZE)
+
+  /// Machine-readable unlock condition ({ metric, threshold, window, ... }),
+  /// evaluated by the achievement job. Json so a new badge kind ships as seed data
+  /// rather than as a migration.
+  criteria Json
+
+  /// XP granted on unlock. Awarded through XpLedger like every other XP movement,
+  /// never by writing User.cycleXp directly.
+  xpReward Int @default(0)
+
+  /// Hidden until earned (the spec's "surprise" badges).
+  isSecret Boolean @default(false)
+
+  /// Retired badges stop being awarded but stay readable by users who hold them —
+  /// deleting the definition would blank out their profile.
+  isActive Boolean @default(true)
+
+  /// Set for badges exclusive to one season.
+  seasonId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  season Season?           @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  users  UserAchievement[]
+
+  @@index([category, tier])
+  @@index([seasonId])
+}
+
+/// A user earning a badge. Append-only.
+model UserAchievement {
+  id            String @id @default(cuid())
+  userId        String
+  achievementId String
+
+  unlockedAt DateTime @default(now())
+
+  /// Progress snapshot at unlock ({ value, threshold }), so the profile can show
+  /// "ran 100 km" and not just the badge name.
+  progress Json?
+
+  /// Whether the ACHIEVEMENT feed post was emitted. Keeps the emitter idempotent
+  /// without a second query against Post.
+  announcedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Restrict, not Cascade: deleting a badge definition that users have earned must
+  /// fail loudly. Retire it with `isActive = false` instead.
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Restrict)
+
+  posts Post[]
+
+  @@unique([userId, achievementId])
+  /// Profile badge case, newest first.
+  @@index([userId, unlockedAt(sort: Desc)])
+}
+
+// ---------------------------------------------------------------------------
+// Season
+// ---------------------------------------------------------------------------
+
+/// A three-month themed season (spec §5.4).
+///
+/// THIS IS THE SOURCE OF `eventMultiplier`. `scoreSession` takes eventMultiplier as
+/// an input and clamps it to [EVENT_MULTIPLIER_MIN, EVENT_MULTIPLIER_MAX] = [1.0, 2.0],
+/// and @habitwar/domain documents that it "comes from the SERVER, never the client"
+/// — but nothing in Phase 0 stored it. The session-write path resolves the active
+/// season (isActive AND startsAt <= now < endsAt) and passes this column; with no
+/// active season it passes 1.0.
+model Season {
+  id String @id @default(cuid())
+
+  /// Stable identity for seed data and analytics ("2026-winter").
+  code String @unique @db.VarChar(40)
+
+  name        String  @db.VarChar(80)
+  theme       String  @db.VarChar(80)
+  description String? @db.VarChar(500)
+  bannerUrl   String?
+
+  startsAt DateTime
+  endsAt   DateTime
+
+  /// Global XP multiplier while this season is active. Defaults to 1.0 (no effect).
+  /// Float rather than Decimal: it is a coefficient the engine clamps anyway and the
+  /// XP result is floored to an Int, so exact decimal arithmetic buys nothing.
+  eventMultiplier Float @default(1.0)
+
+  /// Lets a season be neutralised without editing its dates mid-flight.
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  achievements Achievement[]
+
+  /// Resolving "the season in effect right now" on the session-write path.
+  @@index([isActive, startsAt, endsAt])
+}
+
+// ---------------------------------------------------------------------------
+// Moderation — Report
+// ---------------------------------------------------------------------------
+
+/// A user report against a post or another user.
+///
+/// Not optional: the audit's finding is that this is a full UGC platform (posts,
+/// images, photo proof) with no reporting, blocking or moderation path, which is a
+/// direct App Store Guideline 1.2 rejection. 1.2 wants a reporting mechanism, a
+/// block mechanism, and a documented response to reported content — Report, Block,
+/// and `status`/`reviewedAt` here are those three.
+///
+/// `postId` and `reportedUserId` are both nullable and exactly one is expected to be
+/// set; the API validates that. Prisma cannot express an XOR check constraint, so if
+/// it becomes worth enforcing in the database the migration adds one by hand.
+model Report {
+  id         String @id @default(cuid())
+  reporterId String
+
+  postId         String?
+  reportedUserId String?
+
+  reason ReportReason
+
+  /// Free-text elaboration from the reporter.
+  details String? @db.VarChar(1000)
+
+  status ReportStatus @default(PENDING)
+
+  /// Moderator decision trail. The reviewer is an ordinary User row (staff accounts
+  /// are users) — SetNull so a departed moderator does not erase the decision.
+  reviewerId     String?
+  reviewedAt     DateTime?
+  resolutionNote String?   @db.VarChar(1000)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reporter     User  @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedUser User? @relation("ReportReportedUser", fields: [reportedUserId], references: [id], onDelete: Cascade)
+  reviewer     User? @relation("ReportReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  /// SetNull, not Cascade: a reported post being purged must not destroy the report
+  /// — the moderation response window is audited against these rows.
+  post Post? @relation(fields: [postId], references: [id], onDelete: SetNull)
+
+  /// Moderation queue: oldest PENDING first, which is what a response SLA is
+  /// measured on.
+  @@index([status, createdAt])
+  /// "Has this content been reported before?" and the repeat-offender lookup.
+  @@index([postId])
+  @@index([reportedUserId, status])
+  @@index([reporterId, createdAt(sort: Desc)])
+}
+
+// ---------------------------------------------------------------------------
+// Moderation — Block
+// ---------------------------------------------------------------------------
+
+/// One user blocking another. The second half of the App Store 1.2 requirement, and
+/// separate from FriendshipStatus.BLOCKED because a block must work with no prior
+/// friendship in existence.
+///
+/// Directional and asymmetric on purpose: the blocker stops seeing the blocked user
+/// and cannot be contacted by them, while the blocked user is not told. Feed,
+/// search, duel and notification queries must filter on BOTH directions — hiding
+/// only one way leaks the fact of the block.
+model Block {
+  id        String @id @default(cuid())
+  blockerId String
+  blockedId String
+
+  /// Optional reason, for the moderation team's pattern analysis.
+  reason ReportReason?
+
+  createdAt DateTime @default(now())
+
+  blocker User @relation("BlockBlocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("BlockBlocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  /// Both directions are checked on every feed and profile read, so both are indexed.
+  @@index([blockerId])
+  @@index([blockedId])
+}
+
+// ---------------------------------------------------------------------------
+// Legal — ConsentRecord
+// ---------------------------------------------------------------------------
+
+/// KVKK açık rıza (explicit consent) record. Append-only.
+///
+/// The audit found "explicit consent" appears once in 571 lines of spec, inside a
+/// risk-table cell, with no consent flow and no storage. KVKK art. 4 puts the burden
+/// of PROVING consent on the controller, and art. 6 requires separate explicit
+/// consent for special-category data — which heart-rate and step data are, and which
+/// the spec treated as ordinary "device signals".
+///
+/// Append-only by design: a withdrawal sets `revokedAt` on the existing row, and
+/// re-granting inserts a NEW row. Never UPDATE a grant in place, or the proof of what
+/// the user agreed to, and when, is gone.
+///
+/// `version` records WHICH text was agreed to. Consent to v1 of a privacy notice is
+/// not consent to v2; without this column a policy change silently re-attributes
+/// agreement the user never gave.
+model ConsentRecord {
+  id     String @id @default(cuid())
+  userId String
+
+  type ConsentType
+
+  /// Semantic version or date stamp of the exact document/purpose text shown.
+  version String @db.VarChar(40)
+
+  granted   Boolean   @default(true)
+  grantedAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  /// Evidence of the act of consent, for the art. 4 burden of proof. The IP address
+  /// is itself personal data, so it is purged with the account and used for nothing
+  /// else.
+  ipAddress String? @db.VarChar(45)
+  userAgent String? @db.VarChar(300)
+
+  /// Where the consent was collected ("onboarding", "settings.health", ...).
+  source String? @db.VarChar(60)
+
+  /// No updatedAt: the row is immutable apart from revokedAt.
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// "What is this user's current stance on X?" — latest row per type.
+  @@index([userId, type, grantedAt(sort: Desc)])
+  /// The re-consent sweep after a policy version bump.
+  @@index([type, version])
+}
+
+// ---------------------------------------------------------------------------
+// Enums — social, game, moderation, legal
+// ---------------------------------------------------------------------------
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  /// Kept for spec parity. Block is the model the product actually enforces, since a
+  /// block must work without a prior friendship.
+  BLOCKED
+}
+
+/// DAILY_DIGEST is not in the spec's §7 enum even though §5.1 makes it the DEFAULT
+/// behaviour for automatic posts. Without it the anti-spam rule the spec argues for
+/// cannot be stored.
+enum PostType {
+  SESSION_COMPLETE
+  LEVEL_UP
+  TEXT
+  IMAGE
+  ACHIEVEMENT
+  CHALLENGE_RESULT
+  DAILY_DIGEST
+}
+
+enum NotificationType {
+  FRIEND_REQUEST
+  FRIEND_ACCEPTED
+  NEW_FOLLOWER
+  POST_LIKE
+  POST_COMMENT
+  CHALLENGE_INVITE
+  CHALLENGE_ACCEPTED
+  CHALLENGE_ENDED
+  ACHIEVEMENT_UNLOCKED
+  LEVEL_UP
+  STREAK_AT_RISK
+  SEASON_STARTED
+  MODERATION_ACTION
+  SYSTEM
+}
+
+enum NotificationTargetType {
+  POST
+  USER
+  CHALLENGE
+  ACHIEVEMENT
+  SEASON
+}
+
+enum DevicePlatform {
+  IOS
+  ANDROID
+  WEB
+}
+
+enum ChallengeStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  DECLINED
+  CANCELLED
+  EXPIRED
+}
+
+enum AchievementCategory {
+  STREAK
+  MILESTONE
+  CATEGORY_MASTERY
+  SOCIAL
+  CHALLENGE
+  SEASONAL
+  SPECIAL
+}
+
+enum AchievementTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+  DIAMOND
+}
+
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  HATE_SPEECH
+  SEXUAL_CONTENT
+  VIOLENCE
+  SELF_HARM
+  IMPERSONATION
+  CHEATING
+  INTELLECTUAL_PROPERTY
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  UNDER_REVIEW
+  ACTION_TAKEN
+  DISMISSED
+}
+
+/// KVKK requires each purpose to be consented to separately; one blanket flag is not
+/// valid consent. HEALTH_DATA is broken out because step and heart-rate data are
+/// special-category data under art. 6 and need their own explicit consent.
+enum ConsentType {
+  TERMS_OF_SERVICE
+  PRIVACY_POLICY
+  HEALTH_DATA
+  MARKETING_EMAIL
+  PUSH_NOTIFICATIONS
+  ANALYTICS
+  DATA_SHARING_SOCIAL
+  AGE_CONFIRMATION
 }

@@ -11,8 +11,14 @@ import type { Env } from './env.js';
 import authPlugin, { type AuthPluginOptions } from './plugins/auth.js';
 import errorHandlerPlugin from './plugins/error-handler.js';
 import prismaPlugin from './plugins/prisma.js';
+import { feedRoutes } from './modules/feed/routes.js';
+import { friendRoutes } from './modules/friends/routes.js';
+import { gameRoutes } from './modules/game/routes.js';
 import { habitRoutes } from './modules/habits/routes.js';
 import { healthRoutes } from './modules/health/routes.js';
+import { notificationRoutes } from './modules/notifications/routes.js';
+import { profileRoutes } from './modules/profile/routes.js';
+import { safetyRoutes } from './modules/safety/routes.js';
 import { sessionRoutes } from './modules/sessions/routes.js';
 import { clerkWebhookRoutes } from './modules/webhooks/clerk.js';
 
@@ -41,8 +47,17 @@ export async function buildServer(
   await app.register(authPlugin, { env, ...options.auth });
 
   await app.register(healthRoutes);
+
+  // Every module below registers its own requireUser preHandler, so order carries no
+  // authorisation meaning — it is grouped by concern for readability only.
   await app.register(habitRoutes, { prefix: API_PREFIX });
   await app.register(sessionRoutes, { prefix: API_PREFIX });
+  await app.register(profileRoutes, { prefix: API_PREFIX });
+  await app.register(friendRoutes, { prefix: API_PREFIX });
+  await app.register(feedRoutes, { prefix: API_PREFIX });
+  await app.register(gameRoutes, { prefix: API_PREFIX });
+  await app.register(notificationRoutes, { prefix: API_PREFIX });
+  await app.register(safetyRoutes, { prefix: API_PREFIX });
 
   // Registered only when a signing secret exists. Without one the route could not
   // verify signatures, and an unverified webhook that writes to the user table is
