@@ -50,6 +50,15 @@ export interface XpBarProps {
   readonly onFillComplete?: () => void;
   /** Hides the level badge where the screen already states the level. */
   readonly compact?: boolean;
+  /**
+   * Lays the bar out for a dark ground: track and counter switch to the on-dark
+   * palette, and the counter moves beside the track instead of above it.
+   *
+   * The profile hero needs this. Its previous answer was to put the bar on a pale
+   * parchment strip, which over an illustration reads as a patch taped onto the
+   * artwork — the character and their progress should be one object, not two.
+   */
+  readonly onDark?: boolean;
 }
 
 export function XpBar({
@@ -60,6 +69,7 @@ export function XpBar({
   leveledUp = false,
   onFillComplete,
   compact = false,
+  onDark = false,
 }: XpBarProps): React.JSX.Element {
   const fill = useSharedValue(ratio);
 
@@ -95,6 +105,37 @@ export function XpBar({
 
   const atMaxLevel = xpForNextLevel === 0;
 
+  const counter = (
+    <Text style={[styles.counter, onDark && styles.counterOnDark]}>
+      {atMaxLevel ? 'Azami seviye' : `${xpIntoLevel} / ${xpForNextLevel} XP`}
+    </Text>
+  );
+
+  const track = (
+    <View style={[styles.track, onDark && styles.trackOnDark]}>
+      <Animated.View style={[styles.fill, onDark && styles.fillOnDark, fillStyle]}>
+        {/*
+          A lighter line along the top of the fill. It is what stops a saturated
+          block from looking flat, and it is the cheapest possible way to get there
+          — no gradient dependency, no overdraw.
+        */}
+        <View style={styles.shine} />
+      </Animated.View>
+    </View>
+  );
+
+  // On dark the counter sits beside the track on one line; the level is stated by the
+  // screen, so a second row carrying only a number would be wasted vertical space over
+  // an illustration that is doing work.
+  if (onDark) {
+    return (
+      <View style={styles.rowLayout}>
+        <View style={styles.trackFlex}>{track}</View>
+        {counter}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.labelRow}>
@@ -103,21 +144,10 @@ export function XpBar({
             <Text style={styles.levelBadgeText}>Sv {level}</Text>
           </View>
         )}
-        <Text style={styles.counter}>
-          {atMaxLevel ? 'Azami seviye' : `${xpIntoLevel} / ${xpForNextLevel} XP`}
-        </Text>
+        {counter}
       </View>
 
-      <View style={styles.track}>
-        <Animated.View style={[styles.fill, fillStyle]}>
-          {/*
-            A lighter line along the top of the fill. It is what stops a saturated
-            block from looking flat, and it is the cheapest possible way to get there
-            — no gradient dependency, no overdraw.
-          */}
-          <View style={styles.shine} />
-        </Animated.View>
-      </View>
+      {track}
     </View>
   );
 }
@@ -135,6 +165,17 @@ const styles = StyleSheet.create({
   levelBadgeText: { ...type.label, color: colors.textOnAccent },
 
   counter: { ...type.label, color: colors.textMuted, fontVariant: ['tabular-nums'] },
+  counterOnDark: {
+    color: colors.textOnDark,
+    textShadowColor: 'rgba(12, 20, 28, 0.75)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 5,
+  },
+
+  // The track and counter share a baseline; the track takes the slack so the counter
+  // keeps its intrinsic width and never wraps mid-figure.
+  rowLayout: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  trackFlex: { flex: 1 },
 
   track: {
     height: TRACK_HEIGHT,
@@ -142,6 +183,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSunken,
     overflow: 'hidden',
   },
+  // Over an illustration the sunken parchment would read as a light bar in its own
+  // right, so the empty portion becomes a translucent well instead.
+  trackOnDark: { backgroundColor: 'rgba(255, 255, 255, 0.18)' },
   fill: {
     height: '100%',
     borderRadius: radius.pill,
@@ -150,6 +194,9 @@ const styles = StyleSheet.create({
     // A fill at 0% must not show a rounded stub of colour.
     minWidth: 0,
   },
+  // XP violet rather than the accent blue: on the hero this bar is the character's
+  // progress, which is the colour XP is counted in everywhere else.
+  fillOnDark: { backgroundColor: colors.xp },
   shine: {
     height: 5,
     marginTop: 4,

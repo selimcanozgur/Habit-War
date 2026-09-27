@@ -53,6 +53,12 @@ export interface ScreenHeroProps {
    * children pushed the title off the top of the image and it rendered clipped.
    */
   readonly grows?: boolean;
+  /**
+   * Overrides the default height, for a hero carrying more than a title.
+   *
+   * Read as a floor under `grows` and as an exact height without it.
+   */
+  readonly height?: number;
 }
 
 export function ScreenHero({
@@ -63,6 +69,7 @@ export function ScreenHero({
   action,
   children,
   grows = false,
+  height = heroHeight,
 }: ScreenHeroProps): React.JSX.Element {
   const insets = useSafeAreaInsets();
 
@@ -72,7 +79,7 @@ export function ScreenHero({
         styles.hero,
         // minHeight lets content set the size; height pins it. A hero holding only a
         // title wants the pin, one holding a character card wants the floor.
-        grows ? { minHeight: heroHeight } : { height: heroHeight },
+        grows ? { minHeight: height } : { height },
         { paddingTop: insets.top + spacing.sm },
       ]}
     >
@@ -87,12 +94,19 @@ export function ScreenHero({
       <Image source={HERO_IMAGES[image]} style={styles.image} resizeMode="cover" />
 
       {/*
-        Bottom-up scrim. Without it the title's legibility depends on whichever part
-        of the illustration happens to sit behind it.
+        Scrim, dark at both ends and clear through the middle. The bottom carries the
+        banner; the top exists because the name and the settings gear sit up there
+        against sky, which is the brightest part of every one of these illustrations.
+        Leaving the middle open is what keeps the figure visible between them.
       */}
       <LinearGradient
-        colors={['transparent', 'rgba(29,42,53,0.35)', 'rgba(29,42,53,0.88)']}
-        locations={[0, 0.45, 1]}
+        colors={[
+          'rgba(29,42,53,0.55)',
+          'rgba(29,42,53,0.15)',
+          'rgba(29,42,53,0.55)',
+          'rgba(29,42,53,0.94)',
+        ]}
+        locations={[0, 0.3, 0.62, 1]}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
@@ -113,6 +127,14 @@ export function ScreenHero({
           {action}
         </View>
 
+        {/*
+          Pushes the children to the bottom edge when the hero has height to spare, so
+          the middle of the illustration — where the figure is — stays clear between
+          the name above and the banner below. With no children it collapses and the
+          title keeps its own position.
+        */}
+        {children ? <View style={styles.spacer} /> : null}
+
         {children}
       </View>
     </View>
@@ -122,7 +144,10 @@ export function ScreenHero({
 const styles = StyleSheet.create({
   hero: {
     overflow: 'hidden',
-    justifyContent: 'flex-end',
+    // No `justifyContent` here: the content block claims the full height and does its
+    // own distribution, via the spacer between the title and the children. Pinning to
+    // flex-end as well would collapse that spacer and stack everything at the bottom.
+    justifyContent: 'flex-start',
     // Shows through until the illustration decodes, and behind its rounded corners.
     backgroundColor: colors.panel,
   },
@@ -135,9 +160,31 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: radius.lg,
     borderBottomRightRadius: radius.lg,
   },
-  content: { padding: spacing.md, gap: spacing.sm },
+  // `flex: 1` so the spacer has room to claim; without it the content block is only
+  // as tall as its children and the spacer has nothing to distribute.
+  content: { flex: 1, padding: spacing.md, gap: spacing.sm },
+  spacer: { flex: 1, minHeight: spacing.md },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   titleText: { flex: 1 },
-  title: { ...type.hero, color: colors.textOnDark },
-  subtitle: { ...type.caption, color: colors.textOnDarkMuted },
+  /*
+    A text shadow under both lines. The scrim sets the general level, but these sit
+    against sky — the brightest, most variable part of every illustration — and a
+    shadow is what guarantees the edge of each letter regardless of what is behind it.
+  */
+  title: {
+    ...type.hero,
+    color: colors.textOnDark,
+    textShadowColor: 'rgba(12, 20, 28, 0.75)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  subtitle: {
+    ...type.caption,
+    // Full-strength on-dark ink rather than the muted tone: muted is for a caption on
+    // a panel, and here it dissolved into the clouds.
+    color: colors.textOnDark,
+    textShadowColor: 'rgba(12, 20, 28, 0.75)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 5,
+  },
 });

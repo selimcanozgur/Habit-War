@@ -21,7 +21,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -115,6 +115,24 @@ export default function ProfileScreen(): React.JSX.Element {
   const [period, setPeriod] = useState<StatsPeriod>('week');
   const [pendingSetting, setPendingSetting] = useState<string | null>(null);
 
+  /**
+   * The gear in the hero scrolls to the settings card rather than opening a screen.
+   *
+   * Settings live at the bottom of a long page, and the comp puts a gear at the top —
+   * so the affordance has to lead somewhere. Recording the card's offset as it lays
+   * out is what makes that possible without a second route; the guard means a press
+   * before layout does nothing instead of jumping to zero.
+   */
+  const scrollRef = useRef<ScrollView>(null);
+  const bodyOffset = useRef(0);
+  const settingsOffset = useRef<number | null>(null);
+  const goToSettings = useCallback((): void => {
+    const y = settingsOffset.current;
+    if (y === null) return;
+    void Haptics.selectionAsync();
+    scrollRef.current?.scrollTo({ y: Math.max(0, y - spacing.md), animated: true });
+  }, []);
+
   const profileQuery = useQuery({ queryKey: ['profile'], queryFn: getProfile });
   const statsQuery = useQuery({
     queryKey: ['profileStats', period],
@@ -183,55 +201,64 @@ export default function ProfileScreen(): React.JSX.Element {
   return (
     <View style={styles.screen}>
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
         {/* ------------------------------------------ character card, on the hero */}
-        <ScreenHero image="profile" title={displayName} subtitle={`@${user.username}`} grows>
-          <View style={styles.heroChips}>
-            <View style={styles.classChip}>
-              <Icon name="star-filled" size={ICON_SIZE - 6} color={colors.gold} />
-              <Text style={styles.classChipText}>{describeClass(user.classType)}</Text>
+        <ScreenHero
+          image="profile"
+          title={displayName}
+          subtitle={describeClass(user.classType)}
+          grows
+          action={
+            <Pressable
+              onPress={goToSettings}
+              hitSlop={spacing.sm}
+              accessibilityRole="button"
+              accessibilityLabel="Ayarlar"
+              style={({ pressed }) => [styles.gearButton, pressed && styles.gearPressed]}
+            >
+              <Icon name="settings" size={ICON_SIZE + 4} color={colors.textOnDark} />
+            </Pressable>
+          }
+        >
+          {/*
+            The uploaded photo, when there is one. The comp has no avatar disc — the
+            illustration is the character — so showing an initials circle there would
+            add a placeholder the design never asked for. A real photo is different:
+            it is the user's own choice and has to appear somewhere on their profile.
+          */}
+          {(user.avatarUrl !== null || user.prestige > 0) && (
+            <View style={styles.heroChips}>
+              {user.avatarUrl !== null && <Avatar url={user.avatarUrl} name={displayName} />}
+              {user.prestige > 0 && (
+                <View style={styles.prestigeChip}>
+                  <Icon name="trophy" size={ICON_SIZE - 6} color={colors.textOnAccent} />
+                  <Text style={styles.prestigeChipText}>{user.prestige}. yükseliş</Text>
+                </View>
+              )}
             </View>
-            {user.prestige > 0 && (
-              <View style={styles.prestigeChip}>
-                <Icon name="trophy" size={ICON_SIZE - 6} color={colors.textOnAccent} />
-                <Text style={styles.prestigeChipText}>{user.prestige}. yükseliş</Text>
-              </View>
-            )}
-          </View>
-
-          <Text style={styles.heroLevel}>Seviye {progress.level}</Text>
+          )}
 
           {/*
-            Reuses the existing XpBar rather than duplicating the fill animation, on
-            a parchment strip: the bar states its own counter in ink, which needs a
-            light ground to stay legible over the illustration. `compact` because the
-            level is already stated above it.
+            Level and counter sit on one line with the bar between them, as the comp
+            has it. The counter is pulled out of XpBar and set beside the track in
+            light ink rather than printed on a parchment strip: over an illustration a
+            pale panel reads as a patch taped to the artwork, and the whole point of
+            the hero is that the character and the progress are one object.
           */}
-          <View style={styles.heroBar}>
+          <View style={styles.heroProgress}>
+            <Text style={styles.heroLevel}>Seviye {progress.level}</Text>
             <XpBar
               ratio={progress.ratio}
               level={progress.level}
               xpIntoLevel={progress.xpIntoLevel}
               xpForNextLevel={progress.isMaxLevel ? 0 : progress.xpForNextLevel}
               compact
+              onDark
             />
           </View>
-        </ScreenHero>
-
-        {/* The avatar straddles the hero's lower edge, which is what ties the card
-            to the illustration instead of stacking two rectangles. */}
-        <View style={styles.avatarPerch} pointerEvents="none">
-          <Avatar url={user.avatarUrl} name={displayName} />
-        </View>
-
-        <View style={styles.body}>
-          {user.bio ? (
-            <View style={styles.card}>
-              <Text style={styles.bio}>{user.bio}</Text>
-            </View>
-          ) : null}
 
           {/* ------------------------------------------------- standing at a glance */}
           <Animated.View entering={FadeInDown.duration(320)} style={styles.badgeRow}>
@@ -254,6 +281,19 @@ export default function ProfileScreen(): React.JSX.Element {
               label="Puan"
             />
           </Animated.View>
+        </ScreenHero>
+
+        <View
+          style={styles.body}
+          onLayout={(event) => {
+            bodyOffset.current = event.nativeEvent.layout.y;
+          }}
+        >
+          {user.bio ? (
+            <View style={styles.card}>
+              <Text style={styles.bio}>{user.bio}</Text>
+            </View>
+          ) : null}
 
           {/* ------------------------------------------------------ stat sheet */}
           <StatRadar stats={stats} />
@@ -366,7 +406,14 @@ export default function ProfileScreen(): React.JSX.Element {
           )}
 
           {/* ------------------------------------------------------- settings */}
-          <View style={styles.card}>
+          {/* `y` here is relative to `body`, whose own offset is added on read — the
+              gear needs a content-space coordinate, not a sibling-space one. */}
+          <View
+            style={styles.card}
+            onLayout={(event) => {
+              settingsOffset.current = bodyOffset.current + event.nativeEvent.layout.y;
+            }}
+          >
             <Text style={styles.sectionTitle}>Ayarlar</Text>
 
             <View style={styles.settingsList}>
@@ -517,18 +564,15 @@ function describeError(error: unknown): string {
   return 'Beklenmeyen bir hata oluştu.';
 }
 
-const AVATAR_SIZE = 72;
+const AVATAR_SIZE = 52;
 /** Matches the 2px outline this language uses everywhere else. */
 const AVATAR_BORDER = 2;
-/** How far the avatar hangs below the hero's lower edge. */
-const AVATAR_OVERLAP = AVATAR_SIZE / 2;
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
-  // The hero runs edge to edge, so only the content below it is inset. The top pad
-  // clears the avatar hanging off the hero.
+  // The hero runs edge to edge, so only the content below it is inset.
   content: { paddingBottom: spacing.xxl },
-  body: { padding: spacing.md, paddingTop: AVATAR_OVERLAP + spacing.sm, gap: spacing.md },
+  body: { padding: spacing.md, gap: spacing.md },
   centered: {
     flex: 1,
     backgroundColor: colors.bg,
@@ -541,17 +585,13 @@ const styles = StyleSheet.create({
   card: { ...cardStyle, gap: spacing.md },
 
   // ------------------------------------------------------------ hero identity
+  // The gear is a plain glyph on the illustration rather than a filled button: at the
+  // top right of a scrim it already has contrast, and a solid chip there would compete
+  // with the name it sits beside.
+  gearButton: { padding: spacing.xs },
+  gearPressed: { opacity: 0.6 },
+
   heroChips: { flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' },
-  classChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-    borderRadius: radius.pill,
-    backgroundColor: colors.frame,
-  },
-  classChipText: { ...type.caption, color: colors.textOnDark },
   prestigeChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -563,23 +603,9 @@ const styles = StyleSheet.create({
   },
   prestigeChipText: { ...type.caption, color: colors.textOnAccent },
 
+  heroProgress: { gap: spacing.xs },
   heroLevel: { ...type.heading, color: colors.textOnDark },
-  heroBar: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: 2,
-    borderColor: colors.borderStrong,
-    padding: spacing.sm,
-  },
 
-  // Pulled up by its own overlap so it straddles the hero's edge. `pointerEvents` is
-  // off on the wrapper, so this never steals a touch from the content beneath.
-  avatarPerch: {
-    alignItems: 'center',
-    marginTop: -AVATAR_OVERLAP,
-    // Above the body card that follows it in flow order.
-    zIndex: 1,
-  },
   avatar: {
     width: AVATAR_SIZE,
     height: AVATAR_SIZE,
@@ -595,14 +621,16 @@ const styles = StyleSheet.create({
   bio: { ...type.body, color: colors.textMuted, lineHeight: 21 },
 
   // -------------------------------------------------------- standing badges
-  badgeRow: { flexDirection: 'row', gap: spacing.sm },
+  badgeRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
   standingBadge: {
     flex: 1,
     alignItems: 'center',
     gap: spacing.xs,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xs,
-    borderRadius: radius.md,
+    // Softer than a card's corner: these now sit inside the hero, and the comp reads
+    // them as rounded tokens on the scene rather than three small panels.
+    borderRadius: radius.lg,
     backgroundColor: colors.stone,
     borderWidth: 2,
     borderColor: colors.frame,

@@ -162,6 +162,15 @@ export const depth = {
 export const heroHeight = 190;
 
 /**
+ * Height for a hero that carries the character banner rather than a title alone.
+ *
+ * The banner stacks a name, a class, a level line, an XP bar and three badges. At
+ * `heroHeight` they crowd the top of the illustration and cover the figure the art
+ * exists to show — so the screens that use it get room for both.
+ */
+export const heroHeightTall = 330;
+
+/**
  * Font family names, registered in app/_layout.tsx.
  *
  * Nunito's rounded, heavy forms sit far better on parchment than a geometric sans;

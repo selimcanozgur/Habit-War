@@ -49,8 +49,16 @@ import {
   type CompleteSessionResponse,
   type Habit,
 } from '../src/api/sessions';
+import {
+  describeClass,
+  getProfile,
+  getProfileStats,
+  readProfile,
+  readStats,
+} from '../src/api/profile';
 import { getCurrentSeason, normaliseSeason } from '../src/api/social';
 import { Button, cardStyle } from '../src/components/Button';
+import { CharacterHeader } from '../src/components/CharacterHeader';
 import { CATEGORY_ICONS, Icon, type IconName } from '../src/components/Icon';
 import { ScreenHero } from '../src/components/ScreenHero';
 import { SessionReward } from '../src/components/SessionReward';
@@ -62,6 +70,14 @@ const ICON_SIZE = 22;
 const ICON_SIZE_LARGE = 24;
 /** Inline icons that sit beside caption text. */
 const ICON_SIZE_SMALL = 18;
+
+/**
+ * The streak a habit row starts advertising at.
+ *
+ * Below a week the number is not yet something the user would cross the room to
+ * protect, and printing it on every row turns the sheet into a wall of orange.
+ */
+const STREAK_CHIP_FLOOR = 7;
 
 /**
  * The habit's identity colour.
@@ -105,11 +121,34 @@ export default function TimerScreen(): React.JSX.Element {
   const habitsQuery = useQuery({ queryKey: ['habits'], queryFn: listHabits });
   const activeQuery = useQuery({ queryKey: ['activeSession'], queryFn: getActiveSession });
   const seasonQuery = useQuery({ queryKey: ['currentSeason'], queryFn: getCurrentSeason });
+  /**
+   * Shares the profile screen's cache key, so opening this screen after the profile
+   * costs nothing and completing a session refreshes both from one invalidation.
+   */
+  const profileQuery = useQuery({ queryKey: ['profile'], queryFn: getProfile });
+  /**
+   * The account streak, which lives on the stats endpoint rather than the profile.
+   * A habit's own `streak` is per-habit and would report the best one, not the
+   * account's — a user with one 14-day habit and four cold ones is not on day 14.
+   */
+  const statsQuery = useQuery({
+    queryKey: ['profileStats', 'week' as const],
+    queryFn: () => getProfileStats('week'),
+  });
 
   const habits = habitsQuery.data?.habits ?? [];
   const activeSession = activeQuery.data?.session ?? null;
   const runningHabit = habits.find((habit) => habit.id === timer.habitId) ?? null;
   const season = useMemo(() => normaliseSeason(seasonQuery.data?.season), [seasonQuery.data]);
+
+  const profile = useMemo(() => readProfile(profileQuery.data), [profileQuery.data]);
+  const statsSummary = useMemo(() => readStats(statsQuery.data), [statsQuery.data]);
+  /** Stat points are displayed as one total, the way the comp's third badge has it. */
+  const statTotal = useMemo(() => {
+    const sheet = profile?.stats;
+    if (!sheet) return 0;
+    return Object.values(sheet).reduce((sum, value) => sum + value, 0);
+  }, [profile?.stats]);
 
   // Adopt whatever session the server says is running. This is what makes the timer
   // survive a reinstall or a second device.
@@ -169,6 +208,9 @@ export default function TimerScreen(): React.JSX.Element {
       setError(null);
       void queryClient.invalidateQueries({ queryKey: ['habits'] });
       void queryClient.invalidateQueries({ queryKey: ['activeSession'] });
+      // The banner above states the level, XP and streak the award just moved; without
+      // this it would keep showing the old figures until the screen remounted.
+      void queryClient.invalidateQueries({ queryKey: ['profile'] });
     },
     onError: (err: unknown) => setError(describeError(err)),
   });
@@ -341,7 +383,33 @@ export default function TimerScreen(): React.JSX.Element {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        <ScreenHero image="today" title="Bugün" subtitle="Bir alışkanlık seç ve başla." />
+        {/*
+          The character leads this screen, because the app's claim is that habits
+          build one — so the sheet below is the day's work on the figure above it,
+          not a checklist that happens to sit under a picture.
+
+          It degrades to the plain title rather than blocking: a profile request that
+          fails or is still in flight must not keep the user from starting a session,
+          which is the one thing this screen exists to do.
+        */}
+        {profile ? (
+          <CharacterHeader
+            image="today"
+            name={profile.user.displayName?.trim() || profile.user.username}
+            className={describeClass(profile.user.classType)}
+            level={profile.progress.level}
+            ratio={profile.progress.ratio}
+            xpIntoLevel={profile.progress.xpIntoLevel}
+            xpForNextLevel={profile.progress.isMaxLevel ? 0 : profile.progress.xpForNextLevel}
+            streak={statsSummary?.currentStreak ?? 0}
+            xp={profile.user.cycleXp}
+            statPoints={statTotal}
+            avatarUrl={profile.user.avatarUrl}
+            prestige={profile.user.prestige}
+          />
+        ) : (
+          <ScreenHero image="today" title="Bugün" subtitle="Bir alışkanlık seç ve başla." />
+        )}
 
         <View style={styles.pane}>
           <View style={styles.sheet}>
@@ -391,7 +459,13 @@ export default function TimerScreen(): React.JSX.Element {
                           </Text>
                           <View style={styles.habitMetaRow}>
                             <Text style={styles.habitMeta}>{habit.targetMinutes} dk</Text>
-                            {habit.currentStreak > 0 && (
+                            {/*
+                              The comp shows only the duration here, and it is right
+                              that four streak chips in a column compete with the
+                              banner's own streak badge. Kept for a streak worth
+                              protecting, where it is the reason not to skip today.
+                            */}
+                            {habit.currentStreak >= STREAK_CHIP_FLOOR && (
                               <View style={styles.streakChip}>
                                 <Icon
                                   name="flame-filled"
