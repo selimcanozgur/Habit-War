@@ -168,9 +168,15 @@ const styles = StyleSheet.create({
   },
   avatarInitials: { ...type.label, color: colors.textMuted },
 
-  text: { flex: 1, gap: 2 },
+  // `minWidth` is a floor, not a preference. Without it a row carrying two trailing
+  // chips — the accept/decline pair — let the chips take their full intrinsic width
+  // first, and "Zeynep Arslan" rendered as "Zeynep Ars...". A name clipped mid-word
+  // is worse than a slightly narrower button, because the name is the row's subject.
+  text: { flex: 1, minWidth: 116, gap: 2 },
   name: { ...type.heading, color: colors.text },
   meta: { ...type.caption, color: colors.textMuted },
 
-  trailing: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  // Shrinks before the name does, and tightens the gap it owns rather than the
+  // chips' own padding, so the labels stay whole while the group gives ground.
+  trailing: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexShrink: 1 },
 });
