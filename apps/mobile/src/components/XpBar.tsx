@@ -6,6 +6,10 @@
  * user nothing; a bar that *travels* is the payoff for the thirty minutes they just
  * spent.
  *
+ * So it is built heavy on purpose — thick track, a highlight along the top of the
+ * fill, and a level badge that reads as an object rather than a caption. On a white
+ * ground a thin grey rule would disappear entirely.
+ *
  * Two cases it has to handle:
  *  - Normal gain: the fill animates from where it was to where it is.
  *  - Level up: the fill runs to 100%, snaps to empty, then continues into the new
@@ -32,6 +36,8 @@ const FILL_MS = 900;
 const HOLD_MS = 260;
 const RESET_MS = 180;
 
+const TRACK_HEIGHT = 20;
+
 export interface XpBarProps {
   /** 0..1 progress within the current level. */
   readonly ratio: number;
@@ -42,6 +48,8 @@ export interface XpBarProps {
   readonly leveledUp?: boolean;
   /** Fires when the fill animation settles; drives the level-up celebration. */
   readonly onFillComplete?: () => void;
+  /** Hides the level badge where the screen already states the level. */
+  readonly compact?: boolean;
 }
 
 export function XpBar({
@@ -51,6 +59,7 @@ export function XpBar({
   xpForNextLevel,
   leveledUp = false,
   onFillComplete,
+  compact = false,
 }: XpBarProps): React.JSX.Element {
   const fill = useSharedValue(ratio);
 
@@ -89,14 +98,25 @@ export function XpBar({
   return (
     <View style={styles.container}>
       <View style={styles.labelRow}>
-        <Text style={styles.level}>Seviye {level}</Text>
+        {!compact && (
+          <View style={styles.levelBadge}>
+            <Text style={styles.levelBadgeText}>Sv {level}</Text>
+          </View>
+        )}
         <Text style={styles.counter}>
           {atMaxLevel ? 'Azami seviye' : `${xpIntoLevel} / ${xpForNextLevel} XP`}
         </Text>
       </View>
 
       <View style={styles.track}>
-        <Animated.View style={[styles.fill, fillStyle]} />
+        <Animated.View style={[styles.fill, fillStyle]}>
+          {/*
+            A lighter line along the top of the fill. It is what stops a saturated
+            block from looking flat, and it is the cheapest possible way to get there
+            — no gradient dependency, no overdraw.
+          */}
+          <View style={styles.shine} />
+        </Animated.View>
       </View>
     </View>
   );
@@ -104,18 +124,37 @@ export function XpBar({
 
 const styles = StyleSheet.create({
   container: { gap: spacing.sm },
-  labelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  level: { ...type.heading, color: colors.text },
-  counter: { ...type.label, color: colors.textMuted, fontVariant: ['tabular-nums'] },
-  track: {
-    height: 10,
+  labelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+
+  levelBadge: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 3,
     borderRadius: radius.pill,
-    backgroundColor: colors.surfaceRaised,
+  },
+  levelBadgeText: { ...type.label, color: colors.textOnAccent },
+
+  counter: { ...type.label, color: colors.textMuted, fontVariant: ['tabular-nums'] },
+
+  track: {
+    height: TRACK_HEIGHT,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSunken,
     overflow: 'hidden',
   },
   fill: {
     height: '100%',
     borderRadius: radius.pill,
     backgroundColor: colors.accent,
+    justifyContent: 'flex-start',
+    // A fill at 0% must not show a rounded stub of colour.
+    minWidth: 0,
+  },
+  shine: {
+    height: 5,
+    marginTop: 4,
+    marginHorizontal: 6,
+    borderRadius: radius.pill,
+    backgroundColor: 'rgba(255, 255, 255, 0.42)',
   },
 });

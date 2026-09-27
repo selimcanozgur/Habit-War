@@ -15,6 +15,7 @@
  * the friends leaderboard, active duels, and the form to start one.
  */
 
+import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { useMemo, useState } from 'react';
@@ -39,6 +40,7 @@ import {
   normaliseSeason,
   type Challenge,
 } from '../src/api/social';
+import { Button, ChipButton, cardStyle } from '../src/components/Button';
 import { DuelCard } from '../src/components/DuelCard';
 import { UserRow } from '../src/components/UserRow';
 import { colors, radius, spacing, type } from '../src/theme';
@@ -57,6 +59,10 @@ const CATEGORY_OPTIONS: readonly Category[] = [
   'HEALTH',
   'SKILL',
 ];
+
+const ICON_SIZE = 20;
+/** Medals for the top three. Rank 4 and below get their number, not a metal. */
+const PODIUM_COLORS: readonly string[] = [colors.warning, colors.textMuted, colors.accentBright];
 
 /** Duels a user should still be looking at. Finished and refused ones fall away. */
 function isLiveDuel(challenge: Challenge): boolean {
@@ -150,17 +156,25 @@ export default function BattleScreen(): React.JSX.Element {
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>Savaş</Text>
+        <View style={styles.titleRow}>
+          <Ionicons name="flame" size={28} color={colors.warning} />
+          <Text style={styles.title}>Savaş</Text>
+        </View>
 
         {/* Season banner. Hidden entirely when there is no season — an empty banner
-            is worse than no banner. */}
+            is worse than no banner. The soft primary ground is what marks it as the
+            one piece of standing context on the screen rather than another card. */}
         {season !== null && (
           <Animated.View entering={FadeIn.duration(300)} style={styles.seasonBanner}>
-            <Text style={styles.seasonLabel}>Aktif sezon</Text>
+            <View style={styles.seasonHeader}>
+              <Ionicons name="calendar" size={ICON_SIZE} color={colors.accent} />
+              <Text style={styles.seasonLabel}>Aktif sezon</Text>
+            </View>
             <Text style={styles.seasonName}>{season.name}</Text>
             {season.theme !== null && <Text style={styles.seasonTheme}>{season.theme}</Text>}
             {season.eventMultiplier !== null && (
               <View style={styles.multiplierPill}>
+                <Ionicons name="flash" size={ICON_SIZE - 4} color={colors.textOnAccent} />
                 <Text style={styles.multiplierText}>
                   Etkinlik çarpanı ×{season.eventMultiplier.toFixed(season.eventMultiplier % 1 === 0 ? 0 : 1)}
                 </Text>
@@ -169,15 +183,7 @@ export default function BattleScreen(): React.JSX.Element {
           </Animated.View>
         )}
 
-        {notice !== null && (
-          <Pressable
-            onPress={() => setNotice(null)}
-            accessibilityRole="button"
-            accessibilityLabel="Bildirimi kapat"
-          >
-            <Text style={styles.notice}>{notice}</Text>
-          </Pressable>
-        )}
+        {notice !== null && <Notice message={notice} onDismiss={() => setNotice(null)} />}
 
         {/* --- Friends leaderboard: the headline of this screen. --- */}
         <Section title="Arkadaş sıralaması" subtitle="Bu haftaki XP">
@@ -189,33 +195,30 @@ export default function BattleScreen(): React.JSX.Element {
               onRetry={() => void leaderboardQuery.refetch()}
             />
           ) : entries.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Sıralama için arkadaş gerek</Text>
-              <Text style={styles.emptyBody}>
-                Arkadaş ekledikçe haftalık XP sıralaman burada oluşur. Sıralama her pazartesi
-                sıfırlanır.
-              </Text>
-            </View>
+            <EmptyCard
+              icon="podium-outline"
+              title="Sıralama için arkadaş gerek"
+              body="Arkadaş ekledikçe haftalık XP sıralaman burada oluşur. Sıralama her pazartesi sıfırlanır."
+            />
           ) : (
-            entries.map((entry, index) => (
-              <Animated.View key={entry.user.id} entering={FadeInDown.delay(index * 40).duration(280)}>
-                <UserRow
-                  user={entry.user}
-                  highlighted={viewerId !== null && entry.user.id === viewerId}
-                  leading={
-                    <Text
-                      style={[
-                        styles.rank,
-                        viewerId !== null && entry.user.id === viewerId && styles.rankMine,
-                      ]}
-                    >
-                      {entry.rank}
-                    </Text>
-                  }
-                  trailing={<Text style={styles.weeklyXp}>{entry.weeklyXp} XP</Text>}
-                />
-              </Animated.View>
-            ))
+            entries.map((entry, index) => {
+              const isViewer = viewerId !== null && entry.user.id === viewerId;
+              return (
+                <Animated.View key={entry.user.id} entering={FadeInDown.delay(index * 40).duration(280)}>
+                  <UserRow
+                    user={entry.user}
+                    highlighted={isViewer}
+                    leading={<RankBadge rank={entry.rank} highlighted={isViewer} />}
+                    trailing={
+                      <View style={styles.weeklyXpPill}>
+                        <Text style={styles.weeklyXpValue}>{entry.weeklyXp}</Text>
+                        <Text style={styles.weeklyXpUnit}>XP</Text>
+                      </View>
+                    }
+                  />
+                </Animated.View>
+              );
+            })
           )}
         </Section>
 
@@ -229,12 +232,11 @@ export default function BattleScreen(): React.JSX.Element {
               onRetry={() => void challengesQuery.refetch()}
             />
           ) : duels.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Aktif düello yok</Text>
-              <Text style={styles.emptyBody}>
-                Bir arkadaşını seç, kategori ve süre belirle; kim daha çok XP toplarsa kazanır.
-              </Text>
-            </View>
+            <EmptyCard
+              icon="flash-outline"
+              title="Aktif düello yok"
+              body="Bir arkadaşını seç, kategori ve süre belirle; kim daha çok XP toplarsa kazanır."
+            />
           ) : (
             duels.map((duel) => (
               <DuelCard
@@ -251,17 +253,17 @@ export default function BattleScreen(): React.JSX.Element {
 
         {/* --- Duel composer --- */}
         {!composerOpen ? (
-          <Pressable
-            style={styles.primaryButton}
+          <Button
+            label="Düello başlat"
             onPress={() => {
+              // The composer's own open animation carries no feedback of its own, so
+              // the tap is acknowledged here as well as by the button's press.
               void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setComposerOpen(true);
             }}
-            accessibilityRole="button"
             accessibilityLabel="Yeni düello başlat"
-          >
-            <Text style={styles.primaryButtonText}>Düello başlat</Text>
-          </Pressable>
+            style={styles.launchButton}
+          />
         ) : (
           <Animated.View entering={FadeInDown.duration(280)} style={styles.composer}>
             <View style={styles.composerHeader}>
@@ -272,7 +274,7 @@ export default function BattleScreen(): React.JSX.Element {
                 accessibilityLabel="Düello oluşturmayı kapat"
                 hitSlop={spacing.sm}
               >
-                <Text style={styles.closeIcon}>✕</Text>
+                <Ionicons name="close" size={ICON_SIZE + 2} color={colors.textMuted} />
               </Pressable>
             </View>
 
@@ -294,17 +296,16 @@ export default function BattleScreen(): React.JSX.Element {
                 {friends.map((friend) => {
                   const selected = opponent === friend.user.username;
                   return (
-                    <Pressable
+                    <ChipButton
                       key={friend.friendshipId}
-                      style={[styles.chip, selected && styles.chipSelected]}
+                      label={friend.user.displayName}
+                      // A selected chip takes the primary tone, which gives it the
+                      // accent fill and white label — the same "this is chosen" cue
+                      // the rest of the app uses.
+                      tone={selected ? 'primary' : 'neutral'}
                       onPress={() => setOpponent(selected ? null : friend.user.username)}
-                      accessibilityRole="button"
                       accessibilityLabel={`Rakip olarak ${friend.user.displayName} seç`}
-                    >
-                      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                        {friend.user.displayName}
-                      </Text>
-                    </Pressable>
+                    />
                   );
                 })}
               </View>
@@ -315,17 +316,13 @@ export default function BattleScreen(): React.JSX.Element {
               {CATEGORY_OPTIONS.map((option) => {
                 const selected = category === option;
                 return (
-                  <Pressable
+                  <ChipButton
                     key={option}
-                    style={[styles.chip, selected && styles.chipSelected]}
+                    label={describeCategory(option)}
+                    tone={selected ? 'primary' : 'neutral'}
                     onPress={() => setCategory(selected ? null : option)}
-                    accessibilityRole="button"
                     accessibilityLabel={`Kategori ${describeCategory(option)}`}
-                  >
-                    <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                      {describeCategory(option)}
-                    </Text>
-                  </Pressable>
+                  />
                 );
               })}
             </View>
@@ -335,23 +332,21 @@ export default function BattleScreen(): React.JSX.Element {
               {DUEL_DAY_OPTIONS.map((option) => {
                 const selected = days === option;
                 return (
-                  <Pressable
+                  <ChipButton
                     key={option}
-                    style={[styles.chip, selected && styles.chipSelected]}
+                    label={`${option} gün`}
+                    tone={selected ? 'primary' : 'neutral'}
                     onPress={() => setDays(option)}
-                    accessibilityRole="button"
                     accessibilityLabel={`${option} günlük düello`}
-                  >
-                    <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                      {option} gün
-                    </Text>
-                  </Pressable>
+                  />
                 );
               })}
             </View>
 
-            <Pressable
-              style={[styles.primaryButton, !canSubmit && styles.buttonDisabled]}
+            <Button
+              // The pending label is kept rather than handing the button its `loading`
+              // spinner: "Gönderiliyor…" says what is happening, a spinner does not.
+              label={createMutation.isPending ? 'Gönderiliyor…' : 'Daveti gönder'}
               disabled={!canSubmit}
               onPress={() => {
                 // Narrowed here rather than trusting `canSubmit`: the compiler cannot
@@ -359,13 +354,9 @@ export default function BattleScreen(): React.JSX.Element {
                 if (opponent === null || category === null) return;
                 createMutation.mutate({ opponentUsername: opponent, category, days });
               }}
-              accessibilityRole="button"
               accessibilityLabel="Düello davetini gönder"
-            >
-              <Text style={styles.primaryButtonText}>
-                {createMutation.isPending ? 'Gönderiliyor…' : 'Daveti gönder'}
-              </Text>
-            </Pressable>
+              style={styles.submitButton}
+            />
 
             {!canSubmit && !busy && (
               <Text style={styles.hint}>Rakip ve kategori seçtiğinde davet gönderilebilir.</Text>
@@ -374,6 +365,31 @@ export default function BattleScreen(): React.JSX.Element {
         )}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/**
+ * Leaderboard rank.
+ *
+ * A filled disc rather than a bare number: at 12px a digit beside a 44px avatar has
+ * no presence, and the top three earn a metal so the podium is readable before any
+ * name is. The viewer's own rank is always the primary colour, whatever it is.
+ */
+function RankBadge({
+  rank,
+  highlighted,
+}: {
+  readonly rank: number;
+  readonly highlighted: boolean;
+}): React.JSX.Element {
+  const podium = PODIUM_COLORS[rank - 1];
+  const fill = highlighted ? colors.accent : (podium ?? colors.surfaceSunken);
+  const onPodium = highlighted || podium !== undefined;
+
+  return (
+    <View style={[styles.rankBadge, { backgroundColor: fill }]}>
+      <Text style={[styles.rankText, onPodium ? styles.rankTextOnFill : null]}>{rank}</Text>
+    </View>
   );
 }
 
@@ -397,6 +413,46 @@ function Section({
   );
 }
 
+/** Transient result of a mutation. Tappable to dismiss, as it always was. */
+function Notice({
+  message,
+  onDismiss,
+}: {
+  readonly message: string;
+  readonly onDismiss: () => void;
+}): React.JSX.Element {
+  return (
+    <Pressable
+      onPress={onDismiss}
+      accessibilityRole="button"
+      accessibilityLabel="Bildirimi kapat"
+      style={styles.notice}
+    >
+      <Ionicons name="information-circle" size={ICON_SIZE} color={colors.accent} />
+      <Text style={styles.noticeText}>{message}</Text>
+      <Ionicons name="close" size={ICON_SIZE} color={colors.textMuted} />
+    </Pressable>
+  );
+}
+
+function EmptyCard({
+  icon,
+  title,
+  body,
+}: {
+  readonly icon: React.ComponentProps<typeof Ionicons>['name'];
+  readonly title: string;
+  readonly body: string;
+}): React.JSX.Element {
+  return (
+    <View style={styles.emptyCard}>
+      <Ionicons name={icon} size={ICON_SIZE + 4} color={colors.textFaint} />
+      <Text style={styles.emptyTitle}>{title}</Text>
+      <Text style={styles.emptyBody}>{body}</Text>
+    </View>
+  );
+}
+
 function ErrorBlock({
   message,
   onRetry,
@@ -406,15 +462,18 @@ function ErrorBlock({
 }): React.JSX.Element {
   return (
     <View style={styles.errorBlock}>
-      <Text style={styles.errorText}>{message}</Text>
-      <Pressable
-        style={styles.secondaryButton}
+      <View style={styles.errorRow}>
+        <Ionicons name="alert-circle" size={ICON_SIZE} color={colors.danger} />
+        <Text style={styles.errorText}>{message}</Text>
+      </View>
+      <Button
+        label="Tekrar dene"
+        tone="neutral"
+        size="small"
+        block={false}
         onPress={onRetry}
-        accessibilityRole="button"
         accessibilityLabel="Tekrar dene"
-      >
-        <Text style={styles.secondaryButtonText}>Tekrar dene</Text>
-      </Pressable>
+      />
     </View>
   );
 }
@@ -429,120 +488,82 @@ function describeError(error: unknown): string {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.lg, gap: spacing.md, paddingBottom: spacing.xxl },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   title: { ...type.title, color: colors.text },
 
   seasonBanner: {
-    padding: spacing.md,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surfaceRaised,
-    borderWidth: 1,
+    ...cardStyle,
+    backgroundColor: colors.accentSoft,
     borderColor: colors.accent,
     gap: spacing.xs,
   },
-  seasonLabel: {
-    ...type.caption,
-    color: colors.accentBright,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
+  seasonHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  seasonLabel: { ...type.overline, color: colors.accentDark, textTransform: 'uppercase' },
   seasonName: { ...type.heading, color: colors.text },
   seasonTheme: { ...type.body, color: colors.textMuted },
   multiplierPill: {
     alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
     marginTop: spacing.xs,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.sm + 2,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
     backgroundColor: colors.accent,
   },
-  multiplierText: { ...type.caption, color: '#FFFFFF' },
+  multiplierText: { ...type.label, color: colors.textOnAccent },
 
   notice: {
-    ...type.caption,
-    color: colors.accentBright,
-    backgroundColor: colors.surface,
-    borderRadius: radius.sm,
-    padding: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.sm + 2,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    borderColor: colors.accent,
+    backgroundColor: colors.accentSoft,
   },
+  noticeText: { ...type.caption, color: colors.accentDark, flex: 1 },
 
   section: { gap: spacing.sm, marginTop: spacing.sm },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  sectionTitle: {
-    ...type.label,
-    color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
+  sectionTitle: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase' },
   sectionSubtitle: { ...type.caption, color: colors.textFaint },
   sectionBody: { gap: spacing.sm },
 
   inlineLoader: { marginTop: spacing.lg },
 
-  rank: {
-    ...type.label,
-    color: colors.textFaint,
-    fontVariant: ['tabular-nums'],
-    minWidth: 20,
-    textAlign: 'center',
+  rankBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  rankMine: { color: colors.accentBright },
-  weeklyXp: { ...type.label, color: colors.text, fontVariant: ['tabular-nums'] },
+  rankText: { ...type.label, color: colors.textMuted, fontVariant: ['tabular-nums'] },
+  rankTextOnFill: { color: colors.textOnAccent },
 
-  emptyCard: {
-    padding: spacing.md,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.xs,
-  },
+  weeklyXpPill: { flexDirection: 'row', alignItems: 'baseline', gap: 2 },
+  weeklyXpValue: { ...type.heading, color: colors.text, fontVariant: ['tabular-nums'] },
+  weeklyXpUnit: { ...type.caption, color: colors.textFaint },
+
+  emptyCard: { ...cardStyle, gap: spacing.xs, alignItems: 'flex-start' },
   emptyTitle: { ...type.heading, color: colors.text },
   emptyBody: { ...type.body, color: colors.textMuted },
 
-  composer: {
-    padding: spacing.md,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.sm,
-  },
+  composer: { ...cardStyle, gap: spacing.sm },
   composerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   composerTitle: { ...type.heading, color: colors.text },
-  closeIcon: { ...type.label, color: colors.textFaint },
-  fieldLabel: { ...type.caption, color: colors.textMuted, marginTop: spacing.sm },
+  fieldLabel: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase', marginTop: spacing.sm },
 
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surfaceRaised,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chipSelected: { backgroundColor: colors.accent, borderColor: colors.accent },
-  chipText: { ...type.label, color: colors.textMuted },
-  chipTextSelected: { color: '#FFFFFF' },
 
-  primaryButton: {
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    marginTop: spacing.sm,
-  },
-  primaryButtonText: { ...type.heading, color: '#FFFFFF' },
-  buttonDisabled: { opacity: 0.5 },
+  launchButton: { marginTop: spacing.sm },
+  submitButton: { marginTop: spacing.sm },
   hint: { ...type.caption, color: colors.textFaint, textAlign: 'center' },
 
   errorBlock: { gap: spacing.sm, alignItems: 'flex-start', paddingVertical: spacing.md },
-  errorText: { ...type.body, color: colors.danger },
-  secondaryButton: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceRaised,
-  },
-  secondaryButtonText: { ...type.label, color: colors.text },
+  errorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  errorText: { ...type.body, color: colors.danger, flex: 1 },
 });

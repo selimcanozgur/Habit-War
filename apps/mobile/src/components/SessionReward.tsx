@@ -8,11 +8,18 @@
  *
  * It also shows *why* the XP was what it was. XP the user cannot explain is XP they
  * will not trust, and the API already returns the full multiplier breakdown.
+ *
+ * The backdrop is a pale violet wash, not a dark scrim. A near-black veil was correct
+ * when the app was dark and is actively wrong now: it would read as an error state or
+ * a video player in the middle of the app's happiest moment. Tinting the whole screen
+ * with the primary's soft shade says "something good happened" before a word is read,
+ * and leaves the white card standing clearly on top of it.
  */
 
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Easing,
   FadeIn,
@@ -25,7 +32,11 @@ import Animated, {
 
 import type { CompleteSessionResponse } from '../api/sessions';
 import { colors, radius, spacing, statColors, statLabels, type } from '../theme';
+import { Button, cardStyle } from './Button';
 import { XpBar } from './XpBar';
+
+const CHIP_ICON_SIZE = 16;
+const NOTICE_ICON_SIZE = 18;
 
 export interface SessionRewardProps {
   readonly result: CompleteSessionResponse;
@@ -68,6 +79,7 @@ export function SessionReward({
 
         <View style={styles.chips}>
           <View style={[styles.chip, { borderColor: statColor }]}>
+            <Ionicons name="arrow-up-circle" size={CHIP_ICON_SIZE} color={statColor} />
             <Text style={[styles.chipText, { color: statColor }]}>
               +{result.statXp} {statLabels[result.stat]}
               {result.statPointsGained > 0 ? ` · +${result.statPointsGained} puan` : ''}
@@ -76,6 +88,7 @@ export function SessionReward({
 
           {result.streak > 1 && (
             <View style={styles.chip}>
+              <Ionicons name="flame" size={CHIP_ICON_SIZE} color={colors.warning} />
               <Text style={styles.chipText}>{result.streak} günlük seri</Text>
             </View>
           )}
@@ -87,9 +100,12 @@ export function SessionReward({
           the cap itself.
         */}
         {result.hitDailyCap && (
-          <Text style={styles.capNotice}>
-            Bugünkü tavana ulaştın — bu seansın bir kısmı azalan verimle sayıldı.
-          </Text>
+          <View style={styles.capNotice}>
+            <Ionicons name="alert-circle" size={NOTICE_ICON_SIZE} color={colors.warningDark} />
+            <Text style={styles.capNoticeText}>
+              Bugünkü tavana ulaştın — bu seansın bir kısmı azalan verimle sayıldı.
+            </Text>
+          </View>
         )}
 
         <View style={styles.barWrapper}>
@@ -105,18 +121,12 @@ export function SessionReward({
 
         {celebrating && (
           <Animated.View style={[styles.levelBadge, badgeStyle]}>
+            <Ionicons name="sparkles" size={NOTICE_ICON_SIZE} color={colors.textOnAccent} />
             <Text style={styles.levelBadgeText}>Seviye {result.level}</Text>
           </Animated.View>
         )}
 
-        <Pressable
-          style={styles.button}
-          onPress={onDismiss}
-          accessibilityRole="button"
-          accessibilityLabel="Devam et"
-        >
-          <Text style={styles.buttonText}>Devam</Text>
-        </Pressable>
+        <Button label="Devam" onPress={onDismiss} accessibilityLabel="Devam et" />
       </Animated.View>
     </Animated.View>
   );
@@ -125,51 +135,55 @@ export function SessionReward({
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(11, 13, 20, 0.92)',
+    backgroundColor: colors.accentSoft,
     justifyContent: 'center',
     padding: spacing.lg,
   },
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
+    ...cardStyle,
+    // The card's outline is the primary rather than the usual grey: on the tinted
+    // backdrop a grey border would disappear into it.
+    borderColor: colors.accent,
     padding: spacing.lg,
     gap: spacing.md,
   },
   habit: { ...type.label, color: colors.textMuted, textAlign: 'center' },
-  xp: {
-    fontSize: 48,
-    fontWeight: '700',
-    color: colors.accentBright,
-    textAlign: 'center',
-    fontVariant: ['tabular-nums'],
-  },
+  xp: { ...type.display, color: colors.accent, textAlign: 'center' },
+
   chips: { flexDirection: 'row', gap: spacing.sm, justifyContent: 'center', flexWrap: 'wrap' },
   chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs + 2,
     borderRadius: radius.pill,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.border,
+    backgroundColor: colors.surfaceRaised,
   },
-  chipText: { ...type.caption, color: colors.textMuted },
-  capNotice: { ...type.caption, color: colors.warning, textAlign: 'center' },
+  chipText: { ...type.label, color: colors.textMuted },
+
+  capNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.warningSoft,
+  },
+  capNoticeText: { ...type.caption, color: colors.warningDark, flex: 1 },
+
   barWrapper: { marginTop: spacing.xs },
   levelBadge: {
     alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
     borderRadius: radius.pill,
     backgroundColor: colors.accent,
   },
-  levelBadgeText: { ...type.heading, color: '#FFFFFF' },
-  button: {
-    marginTop: spacing.xs,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceRaised,
-    alignItems: 'center',
-  },
-  buttonText: { ...type.heading, color: colors.text },
+  levelBadgeText: { ...type.heading, color: colors.textOnAccent },
 });

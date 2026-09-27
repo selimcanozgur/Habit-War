@@ -9,6 +9,10 @@
  * Trailing content is a slot rather than a set of props: the accept/decline pair,
  * the single "Ekle" button and the plain streak label have nothing in common
  * beyond their position, and modelling them as variants would only grow.
+ *
+ * Visually the row is a card: it borrows `cardStyle` so a row and a panel carry the
+ * same 2px outline. On a white ground the border is the only thing separating one
+ * row from the next, which is why it is never thinner than the shared token.
  */
 
 import { memo } from 'react';
@@ -17,6 +21,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { describeClass } from '../api/profile';
 import type { SocialUser } from '../api/social';
 import { colors, radius, spacing, type } from '../theme';
+import { cardStyle } from './Button';
 
 export interface UserRowProps {
   readonly user: SocialUser;
@@ -55,7 +60,7 @@ function UserRowInner({
     <>
       {leading}
 
-      <View style={styles.avatar}>
+      <View style={[styles.avatar, highlighted && styles.avatarHighlighted]}>
         {user.avatarUrl !== null ? (
           <Image source={{ uri: user.avatarUrl }} style={styles.avatarImage} />
         ) : (
@@ -101,32 +106,41 @@ function UserRowInner({
 
 export const UserRow = memo(UserRowInner);
 
-const AVATAR_SIZE = 40;
+const AVATAR_SIZE = 44;
+/** Matches the 2px outline this language uses everywhere else. */
+const AVATAR_BORDER = 2;
 
 const styles = StyleSheet.create({
   row: {
+    ...cardStyle,
+    // A row is shorter than a panel, so the panel radius would eat into the avatar.
+    borderRadius: radius.md,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    padding: spacing.md,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
-  rowHighlighted: { borderColor: colors.accent, backgroundColor: colors.surfaceRaised },
+  // "You" is marked by a tinted fill as well as the border: colour alone would be
+  // invisible to anyone who cannot distinguish the violet from the grey.
+  rowHighlighted: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
   rowPressed: { opacity: 0.7 },
 
   avatar: {
     width: AVATAR_SIZE,
     height: AVATAR_SIZE,
     borderRadius: radius.pill,
-    backgroundColor: colors.surfaceRaised,
+    backgroundColor: colors.surfaceSunken,
+    borderWidth: AVATAR_BORDER,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  avatarImage: { width: AVATAR_SIZE, height: AVATAR_SIZE },
+  avatarHighlighted: { borderColor: colors.accent },
+  // Inset by the border so a photo fills the circle instead of overflowing it.
+  avatarImage: {
+    width: AVATAR_SIZE - AVATAR_BORDER * 2,
+    height: AVATAR_SIZE - AVATAR_BORDER * 2,
+  },
   avatarInitials: { ...type.label, color: colors.textMuted },
 
   text: { flex: 1, gap: 2 },

@@ -9,18 +9,25 @@
  * The character limit is enforced at the input (`maxLength`) rather than on submit,
  * because a post rejected after typing 600 characters is a worse experience than one
  * that simply stops accepting them.
+ *
+ * The field itself is drawn as a recessed well inside the card: on a white page a
+ * white input with a hairline border does not read as something you can type into.
  */
 
-import * as Haptics from 'expo-haptics';
+import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated';
 
 import { colors, radius, spacing, type } from '../theme';
+import { Button, cardStyle, ChipButton } from './Button';
 
 export const MAX_POST_LENGTH = 500;
 /** Below this many characters left, the counter turns into a warning. */
 const COUNTER_WARN_AT = 50;
+
+/** Inline icon beside the prompt. */
+const ICON_SIZE = 18;
 
 export interface ComposePostProps {
   readonly onSubmit: (content: string) => void;
@@ -43,7 +50,8 @@ export function ComposePost({
 
   const handleSubmit = useCallback(() => {
     if (!canSubmit) return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // No haptic here: `Button` already fires the same light impact on press, and two
+    // of them in the same frame reads as a stutter rather than a confirmation.
     onSubmit(trimmed);
     // Clear eagerly. The screen re-opens the composer with the text restored if the
     // mutation fails, so nothing is lost and the common path feels instant.
@@ -51,21 +59,31 @@ export function ComposePost({
     setExpanded(false);
   }, [canSubmit, onSubmit, trimmed]);
 
+  const handleCancel = useCallback(() => {
+    setText('');
+    setExpanded(false);
+  }, []);
+
   return (
     <Animated.View style={styles.container} layout={LinearTransition.duration(180)}>
-      <TextInput
-        style={[styles.input, expanded && styles.inputExpanded]}
-        value={text}
-        onChangeText={setText}
-        onFocus={() => setExpanded(true)}
-        placeholder="Bugün ne üzerinde çalıştın?"
-        placeholderTextColor={colors.textFaint}
-        multiline={expanded}
-        maxLength={MAX_POST_LENGTH}
-        editable={!isSubmitting}
-        accessibilityLabel="Gönderi metni"
-        accessibilityHint={`En fazla ${MAX_POST_LENGTH} karakter`}
-      />
+      <View style={[styles.well, expanded && styles.wellExpanded]}>
+        {!expanded && (
+          <Ionicons name="create-outline" size={ICON_SIZE} color={colors.textFaint} />
+        )}
+        <TextInput
+          style={[styles.input, expanded && styles.inputExpanded]}
+          value={text}
+          onChangeText={setText}
+          onFocus={() => setExpanded(true)}
+          placeholder="Bugün ne üzerinde çalıştın?"
+          placeholderTextColor={colors.textFaint}
+          multiline={expanded}
+          maxLength={MAX_POST_LENGTH}
+          editable={!isSubmitting}
+          accessibilityLabel="Gönderi metni"
+          accessibilityHint={`En fazla ${MAX_POST_LENGTH} karakter`}
+        />
+      </View>
 
       {expanded && (
         <Animated.View entering={FadeIn.duration(150)} style={styles.actions}>
@@ -76,32 +94,23 @@ export function ComposePost({
             {remaining}
           </Text>
 
-          <Pressable
-            onPress={() => {
-              setText('');
-              setExpanded(false);
-            }}
-            style={styles.cancelButton}
-            accessibilityRole="button"
+          <ChipButton
+            label="Vazgeç"
+            onPress={handleCancel}
             accessibilityLabel="Gönderiyi iptal et"
-          >
-            <Text style={styles.cancelText}>Vazgeç</Text>
-          </Pressable>
+          />
 
-          <Pressable
-            onPress={handleSubmit}
+          <Button
+            label="Paylaş"
+            tone="primary"
+            size="small"
+            block={false}
+            loading={isSubmitting}
             disabled={!canSubmit}
-            style={[styles.submitButton, !canSubmit && styles.submitDisabled]}
-            accessibilityRole="button"
+            onPress={handleSubmit}
             accessibilityLabel="Gönderiyi paylaş"
-            accessibilityState={{ disabled: !canSubmit, busy: isSubmitting }}
-          >
-            {isSubmitting ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <Text style={styles.submitText}>Paylaş</Text>
-            )}
-          </Pressable>
+            style={styles.submit}
+          />
         </Animated.View>
       )}
 
@@ -114,46 +123,44 @@ export function ComposePost({
   );
 }
 
+/** Wide enough that "Paylaş" and the busy spinner do not resize the row. */
+const SUBMIT_MIN_WIDTH = 96;
+
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.sm,
+  container: { ...cardStyle, gap: spacing.sm },
+
+  /** The recessed well. Its fill, not a border, is what says "type here". */
+  well: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.sm,
+    backgroundColor: colors.surfaceRaised,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
   },
+  wellExpanded: { alignItems: 'flex-start', paddingVertical: spacing.sm },
+
   input: {
     ...type.body,
     color: colors.text,
-    paddingHorizontal: spacing.sm,
+    flex: 1,
     paddingVertical: spacing.sm,
-    minHeight: 40,
+    minHeight: 44,
   },
   inputExpanded: { minHeight: 88, textAlignVertical: 'top' },
 
   actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   counter: {
-    ...type.caption,
+    ...type.label,
     color: colors.textFaint,
     flex: 1,
     fontVariant: ['tabular-nums'],
   },
-  counterWarn: { color: colors.warning },
+  counterWarn: { color: colors.warningDark },
 
-  cancelButton: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
-  cancelText: { ...type.label, color: colors.textFaint },
+  submit: { minWidth: SUBMIT_MIN_WIDTH },
 
-  submitButton: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
-    backgroundColor: colors.accent,
-    minWidth: 84,
-    alignItems: 'center',
-  },
-  submitDisabled: { opacity: 0.4 },
-  submitText: { ...type.label, color: '#FFFFFF' },
-
-  error: { ...type.caption, color: colors.danger, paddingHorizontal: spacing.sm },
+  error: { ...type.caption, color: colors.danger },
 });

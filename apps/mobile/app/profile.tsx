@@ -5,6 +5,10 @@
  * session the timer screen recorded, so it leads, and everything below it is
  * evidence — stats, activity, badges, streak.
  *
+ * The numbers are the content here, so they are set in display type and the words
+ * that label them are demoted to overlines and captions. On a screen made mostly of
+ * figures, sizing the figures like body text throws away the hierarchy for free.
+ *
  * Loading strategy: the identity query gates the screen (there is no profile to show
  * without it), while the stats and achievements queries degrade in place. A badge
  * endpoint that is still being written by another agent must not take the whole tab
@@ -14,6 +18,7 @@
  * owned elsewhere and wires the tabs in one pass later.
  */
 
+import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { useMemo, useState } from 'react';
@@ -41,10 +46,15 @@ import {
   type StatsPeriod,
 } from '../src/api/profile';
 import { AchievementShelf } from '../src/components/AchievementShelf';
+import { Button, cardStyle } from '../src/components/Button';
 import { StatRadar } from '../src/components/StatRadar';
 import { StreakCalendar } from '../src/components/StreakCalendar';
 import { XpBar } from '../src/components/XpBar';
 import { colors, radius, spacing, type } from '../src/theme';
+
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
+const ICON_SIZE = 20;
 
 const PERIODS: readonly { readonly value: StatsPeriod; readonly label: string }[] = [
   { value: 'week', label: 'Hafta' },
@@ -57,18 +67,37 @@ const SETTINGS_ENTRIES: readonly {
   readonly key: string;
   readonly label: string;
   readonly hint: string;
+  readonly icon: IoniconName;
   readonly destructive?: boolean;
 }[] = [
-  { key: 'edit', label: 'Profili düzenle', hint: 'Ad, biyografi ve avatar' },
-  { key: 'blocked', label: 'Engellenen kişiler', hint: 'Engellediğin hesapları yönet' },
-  { key: 'export', label: 'Verilerimi dışa aktar', hint: 'Tüm verilerinin bir kopyasını indir' },
+  { key: 'edit', label: 'Profili düzenle', hint: 'Ad, biyografi ve avatar', icon: 'create-outline' },
+  {
+    key: 'blocked',
+    label: 'Engellenen kişiler',
+    hint: 'Engellediğin hesapları yönet',
+    icon: 'ban-outline',
+  },
+  {
+    key: 'export',
+    label: 'Verilerimi dışa aktar',
+    hint: 'Tüm verilerinin bir kopyasını indir',
+    icon: 'download-outline',
+  },
   {
     key: 'delete',
     label: 'Hesabımı sil',
     hint: 'Hesabını ve tüm verilerini kalıcı olarak kaldır',
+    icon: 'trash-outline',
     destructive: true,
   },
 ];
+
+/** Each activity metric gets the icon of the thing it counts. */
+const METRIC_ICONS: Readonly<Record<'sessions' | 'minutes' | 'xp', IoniconName>> = {
+  sessions: 'checkmark-done',
+  minutes: 'time',
+  xp: 'flash',
+};
 
 export default function ProfileScreen(): React.JSX.Element {
   const [period, setPeriod] = useState<StatsPeriod>('week');
@@ -122,16 +151,16 @@ export default function ProfileScreen(): React.JSX.Element {
   if (profileQuery.isError || !user || !progress) {
     return (
       <SafeAreaView style={styles.centered}>
+        <Ionicons name="cloud-offline-outline" size={48} color={colors.textFaint} />
         <Text style={styles.errorTitle}>Profil açılamadı</Text>
         <Text style={styles.errorBody}>{describeError(profileQuery.error)}</Text>
-        <Pressable
-          style={styles.secondaryButton}
+        <Button
+          label="Tekrar dene"
+          tone="neutral"
+          block={false}
           onPress={() => void profileQuery.refetch()}
-          accessibilityRole="button"
           accessibilityLabel="Profili yeniden yükle"
-        >
-          <Text style={styles.secondaryButtonText}>Tekrar dene</Text>
-        </Pressable>
+        />
       </SafeAreaView>
     );
   }
@@ -159,10 +188,12 @@ export default function ProfileScreen(): React.JSX.Element {
 
               <View style={styles.chips}>
                 <View style={styles.chip}>
+                  <Ionicons name="shield-half" size={ICON_SIZE - 4} color={colors.textMuted} />
                   <Text style={styles.chipText}>{describeClass(user.classType)}</Text>
                 </View>
                 {user.prestige > 0 && (
                   <View style={[styles.chip, styles.chipAccent]}>
+                    <Ionicons name="star" size={ICON_SIZE - 4} color={colors.accentDark} />
                     <Text style={[styles.chipText, styles.chipTextAccent]}>
                       {user.prestige}. yükseliş
                     </Text>
@@ -191,6 +222,11 @@ export default function ProfileScreen(): React.JSX.Element {
           <View style={styles.headerRow}>
             <Text style={styles.sectionTitle}>Etkinlik</Text>
 
+            {/*
+              Left as hand-built Pressables rather than ChipButton: a segmented
+              control has to report `accessibilityState.selected` so a screen reader
+              says which period is active, and the chip component takes no such prop.
+            */}
             <View style={styles.segmented}>
               {PERIODS.map((option) => {
                 const selected = option.value === period;
@@ -220,20 +256,28 @@ export default function ProfileScreen(): React.JSX.Element {
           ) : statsQuery.isError ? (
             <View style={styles.inlineError}>
               <Text style={styles.mutedBody}>{describeError(statsQuery.error)}</Text>
-              <Pressable
-                style={styles.secondaryButton}
+              <Button
+                label="Tekrar dene"
+                tone="neutral"
+                size="small"
+                block={false}
                 onPress={() => void statsQuery.refetch()}
-                accessibilityRole="button"
                 accessibilityLabel="Etkinlik özetini yeniden yükle"
-              >
-                <Text style={styles.secondaryButtonText}>Tekrar dene</Text>
-              </Pressable>
+              />
             </View>
           ) : summary && (summary.sessionCount ?? 0) > 0 ? (
             <View style={styles.metrics}>
-              <Metric label="Seans" value={`${summary.sessionCount ?? 0}`} />
-              <Metric label="Süre" value={formatMinutes(summary.totalMinutes ?? 0)} />
-              <Metric label="XP" value={`${summary.totalXp ?? 0}`} />
+              <Metric
+                icon={METRIC_ICONS.sessions}
+                label="Seans"
+                value={`${summary.sessionCount ?? 0}`}
+              />
+              <Metric
+                icon={METRIC_ICONS.minutes}
+                label="Süre"
+                value={formatMinutes(summary.totalMinutes ?? 0)}
+              />
+              <Metric icon={METRIC_ICONS.xp} label="XP" value={`${summary.totalXp ?? 0}`} />
             </View>
           ) : (
             <Text style={styles.empty}>
@@ -260,14 +304,14 @@ export default function ProfileScreen(): React.JSX.Element {
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Rozetler</Text>
             <Text style={styles.mutedBody}>{describeError(achievementsQuery.error)}</Text>
-            <Pressable
-              style={styles.secondaryButton}
+            <Button
+              label="Tekrar dene"
+              tone="neutral"
+              size="small"
+              block={false}
               onPress={() => void achievementsQuery.refetch()}
-              accessibilityRole="button"
               accessibilityLabel="Rozetleri yeniden yükle"
-            >
-              <Text style={styles.secondaryButtonText}>Tekrar dene</Text>
-            </Pressable>
+            />
           </View>
         ) : (
           <AchievementShelf achievements={achievements} />
@@ -281,7 +325,7 @@ export default function ProfileScreen(): React.JSX.Element {
             {SETTINGS_ENTRIES.map((entry) => (
               <Pressable
                 key={entry.key}
-                style={styles.settingRow}
+                style={({ pressed }) => [styles.settingRow, pressed && styles.settingRowPressed]}
                 onPress={() => {
                   void Haptics.selectionAsync();
                   setPendingSetting(entry.key);
@@ -289,13 +333,20 @@ export default function ProfileScreen(): React.JSX.Element {
                 accessibilityRole="button"
                 accessibilityLabel={`${entry.label}. ${entry.hint}`}
               >
+                <View style={[styles.settingIcon, entry.destructive && styles.settingIconDanger]}>
+                  <Ionicons
+                    name={entry.icon}
+                    size={ICON_SIZE}
+                    color={entry.destructive ? colors.danger : colors.textMuted}
+                  />
+                </View>
                 <View style={styles.settingText}>
                   <Text style={[styles.settingLabel, entry.destructive && styles.destructive]}>
                     {entry.label}
                   </Text>
                   <Text style={styles.settingHint}>{entry.hint}</Text>
                 </View>
-                <Text style={styles.chevron}>›</Text>
+                <Ionicons name="chevron-forward" size={ICON_SIZE} color={colors.textFaint} />
               </Pressable>
             ))}
           </View>
@@ -306,9 +357,12 @@ export default function ProfileScreen(): React.JSX.Element {
             so plainly beats a dead tap that looks like a bug.
           */}
           {pendingSetting !== null && (
-            <Animated.Text entering={FadeInDown.duration(200)} style={styles.placeholderNotice}>
-              Bu ekran henüz hazır değil. Yakında burada açılacak.
-            </Animated.Text>
+            <Animated.View entering={FadeInDown.duration(200)} style={styles.placeholderNotice}>
+              <Ionicons name="construct-outline" size={ICON_SIZE} color={colors.warningDark} />
+              <Text style={styles.placeholderNoticeText}>
+                Bu ekran henüz hazır değil. Yakında burada açılacak.
+              </Text>
+            </Animated.View>
           )}
         </View>
       </ScrollView>
@@ -339,10 +393,23 @@ function Avatar({ url, name }: { url: string | null; name: string }): React.JSX.
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }): React.JSX.Element {
+function Metric({
+  icon,
+  label,
+  value,
+}: {
+  icon: IoniconName;
+  label: string;
+  value: string;
+}): React.JSX.Element {
   return (
     <View style={styles.metric} accessible accessibilityRole="text" accessibilityLabel={`${label}: ${value}`}>
-      <Text style={styles.metricValue}>{value}</Text>
+      <Ionicons name={icon} size={ICON_SIZE} color={colors.accent} />
+      {/* Two lines allowed: at display size a long duration ("12 sa 30 dk") wraps to
+          "12 sa / 30 dk", which still reads as one figure. Clipping it would not. */}
+      <Text style={styles.metricValue} numberOfLines={2}>
+        {value}
+      </Text>
       <Text style={styles.metricLabel}>{label}</Text>
     </View>
   );
@@ -363,6 +430,10 @@ function describeError(error: unknown): string {
   return 'Beklenmeyen bir hata oluştu.';
 }
 
+const AVATAR_SIZE = 72;
+/** Matches the 2px outline this language uses everywhere else. */
+const AVATAR_BORDER = 2;
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.md, gap: spacing.md, paddingBottom: spacing.xxl },
@@ -375,19 +446,21 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
 
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    gap: spacing.md,
-  },
+  card: { ...cardStyle, gap: spacing.md },
 
   identityRow: { flexDirection: 'row', gap: spacing.md, alignItems: 'center' },
-  avatar: { width: 64, height: 64, borderRadius: radius.pill, backgroundColor: colors.surfaceRaised },
+  avatar: {
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSunken,
+    // The avatar is the one photograph on the screen, so it gets the same outline
+    // every other object here has instead of floating on the white.
+    borderWidth: AVATAR_BORDER,
+    borderColor: colors.accent,
+  },
   avatarFallback: { alignItems: 'center', justifyContent: 'center' },
-  avatarInitial: { ...type.title, color: colors.accentBright },
+  avatarInitial: { ...type.title, color: colors.accent },
   identityText: { flex: 1, gap: 2 },
   displayName: { ...type.title, color: colors.text },
   username: { ...type.label, color: colors.textMuted },
@@ -395,16 +468,19 @@ const styles = StyleSheet.create({
 
   chips: { flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginTop: spacing.xs },
   chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
     paddingHorizontal: spacing.sm,
     paddingVertical: 3,
     borderRadius: radius.pill,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.border,
     backgroundColor: colors.surfaceRaised,
   },
-  chipAccent: { borderColor: colors.accent },
+  chipAccent: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
   chipText: { ...type.caption, color: colors.textMuted },
-  chipTextAccent: { color: colors.accentBright },
+  chipTextAccent: { color: colors.accentDark },
 
   headerRow: {
     flexDirection: 'row',
@@ -412,49 +488,68 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
-  sectionTitle: { ...type.heading, color: colors.text },
+  sectionTitle: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase' },
 
   segmented: {
     flexDirection: 'row',
-    backgroundColor: colors.surfaceRaised,
+    backgroundColor: colors.surfaceSunken,
     borderRadius: radius.pill,
     padding: 2,
   },
   segment: { paddingHorizontal: spacing.sm + 2, paddingVertical: 5, borderRadius: radius.pill },
   segmentSelected: { backgroundColor: colors.accent },
-  segmentText: { ...type.caption, color: colors.textMuted },
-  segmentTextSelected: { color: '#FFFFFF' },
+  segmentText: { ...type.label, color: colors.textMuted },
+  segmentTextSelected: { color: colors.textOnAccent },
 
   metrics: { flexDirection: 'row', gap: spacing.sm },
   metric: {
     flex: 1,
     alignItems: 'center',
-    gap: 2,
-    paddingVertical: spacing.sm,
+    gap: spacing.xs,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.xs,
     borderRadius: radius.md,
     backgroundColor: colors.surfaceRaised,
+    borderWidth: 2,
+    borderColor: colors.border,
   },
-  metricValue: {
-    ...type.heading,
-    color: colors.text,
-    fontSize: 20,
-    fontVariant: ['tabular-nums'],
-  },
-  metricLabel: { ...type.caption, color: colors.textMuted },
+  // The figure is the point of the tile, so it is set at display size.
+  metricValue: { ...type.display, color: colors.text, textAlign: 'center' },
+  metricLabel: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase' },
 
-  settingsList: { gap: 1 },
+  settingsList: { gap: spacing.xs },
   settingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    paddingVertical: spacing.sm + 2,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.md,
   },
+  settingRowPressed: { backgroundColor: colors.surfaceRaised },
+  settingIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceRaised,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingIconDanger: { backgroundColor: colors.dangerSoft },
   settingText: { flex: 1, gap: 1 },
   settingLabel: { ...type.body, color: colors.text },
   settingHint: { ...type.caption, color: colors.textFaint },
   destructive: { color: colors.danger },
-  chevron: { ...type.heading, color: colors.textFaint },
-  placeholderNotice: { ...type.caption, color: colors.warning },
+
+  placeholderNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.warningSoft,
+  },
+  placeholderNoticeText: { ...type.caption, color: colors.warningDark, flex: 1 },
 
   inlineSpinner: { alignSelf: 'center', marginVertical: spacing.md },
   inlineError: { gap: spacing.sm, alignItems: 'flex-start' },
@@ -463,11 +558,4 @@ const styles = StyleSheet.create({
 
   errorTitle: { ...type.heading, color: colors.text },
   errorBody: { ...type.body, color: colors.textMuted, textAlign: 'center' },
-  secondaryButton: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceRaised,
-  },
-  secondaryButtonText: { ...type.label, color: colors.text },
 });

@@ -7,11 +7,17 @@
  * do. So the order is inverted — the search box sits at the top, always, and the
  * empty list is a set of instructions rather than a shrug.
  *
+ * Because that box is the screen's real job, it is styled as the loudest object on
+ * it: full width, a heavy outline, a magnifier inside it, and a border that turns
+ * primary the moment there is anything to search for. Anything quieter and the cold
+ * start fails silently.
+ *
  * Search is debounced because the endpoint is hit on every keystroke otherwise,
  * and the in-flight request is aborted when the query moves on, so a slow response
  * for "a" cannot land after the response for "ahm".
  */
 
+import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useState } from 'react';
@@ -40,13 +46,31 @@ import {
   sendFriendRequest,
   type SocialUser,
 } from '../src/api/social';
+import { Button, ChipButton, cardStyle } from '../src/components/Button';
 import { UserRow } from '../src/components/UserRow';
 import { colors, radius, spacing, type } from '../src/theme';
+
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
 /** Long enough that a normal typist fires one request, short enough to feel live. */
 const SEARCH_DEBOUNCE_MS = 350;
 /** Single letters match almost everyone; two is where a result set becomes useful. */
 const MIN_QUERY_LENGTH = 2;
+
+const ICON_SIZE = 20;
+/** The magnifier and the clear control, sized to sit level with 16px input text. */
+const SEARCH_ICON_SIZE = 22;
+
+/**
+ * The payoffs listed in the empty state, each with the icon of the screen it pays
+ * off on — a leaderboard, a duel, a streak. Icons rather than bullet characters so
+ * the three lines scan as three different rewards.
+ */
+const COLD_START_ITEMS: readonly { readonly icon: IoniconName; readonly text: string }[] = [
+  { icon: 'podium', text: 'Haftalık XP sıralamasında arkadaşlarınla yarışırsın.' },
+  { icon: 'flash', text: 'Bir arkadaşını 3–7 günlük düelloya çağırabilirsin.' },
+  { icon: 'flame', text: 'Serileri ve seviyeleri buradan takip edersin.' },
+];
 
 export default function FriendsScreen(): React.JSX.Element {
   const queryClient = useQueryClient();
@@ -165,11 +189,19 @@ export default function FriendsScreen(): React.JSX.Element {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
-        <Text style={styles.title}>Arkadaşlar</Text>
+        <View style={styles.titleRow}>
+          <Ionicons name="person-add" size={26} color={colors.accent} />
+          <Text style={styles.title}>Arkadaşlar</Text>
+        </View>
 
         {/* Search leads the screen rather than hiding behind a "+" button: for a
             user with no friends, this input *is* the screen. */}
-        <View style={styles.searchBox}>
+        <View style={[styles.searchBox, query.length > 0 && styles.searchBoxActive]}>
+          <Ionicons
+            name="search"
+            size={SEARCH_ICON_SIZE}
+            color={query.length > 0 ? colors.accent : colors.textMuted}
+          />
           <TextInput
             style={styles.searchInput}
             value={query}
@@ -188,20 +220,12 @@ export default function FriendsScreen(): React.JSX.Element {
               accessibilityLabel="Aramayı temizle"
               hitSlop={spacing.sm}
             >
-              <Text style={styles.clearIcon}>✕</Text>
+              <Ionicons name="close-circle" size={SEARCH_ICON_SIZE} color={colors.textFaint} />
             </Pressable>
           )}
         </View>
 
-        {notice !== null && (
-          <Pressable
-            onPress={() => setNotice(null)}
-            accessibilityRole="button"
-            accessibilityLabel="Bildirimi kapat"
-          >
-            <Text style={styles.notice}>{notice}</Text>
-          </Pressable>
-        )}
+        {notice !== null && <Notice message={notice} onDismiss={() => setNotice(null)} />}
 
         {isSearching ? (
           <Section title="Arama sonuçları">
@@ -225,17 +249,22 @@ export default function FriendsScreen(): React.JSX.Element {
                     user={user}
                     trailing={
                       alreadyKnown ? (
-                        <Text style={styles.trailingLabel}>Ekli</Text>
+                        <View style={styles.trailingLabelGroup}>
+                          <Ionicons
+                            name="checkmark-circle"
+                            size={ICON_SIZE}
+                            color={colors.success}
+                          />
+                          <Text style={styles.trailingLabel}>Ekli</Text>
+                        </View>
                       ) : (
-                        <Pressable
-                          style={[styles.smallButton, busy && styles.buttonDisabled]}
+                        <ChipButton
+                          label="Ekle"
+                          tone="primary"
                           disabled={busy}
                           onPress={() => addMutation.mutate(user.username)}
-                          accessibilityRole="button"
                           accessibilityLabel={`${user.displayName} kullanıcısına arkadaşlık isteği gönder`}
-                        >
-                          <Text style={styles.smallButtonText}>Ekle</Text>
-                        </Pressable>
+                        />
                       )
                     }
                   />
@@ -269,24 +298,23 @@ export default function FriendsScreen(): React.JSX.Element {
                         user={request.user}
                         trailing={
                           <>
-                            <Pressable
-                              style={[styles.smallButton, busy && styles.buttonDisabled]}
+                            {/* Accepting is the good outcome, so it takes the success
+                                tone; declining stays neutral rather than red — this
+                                is not a destructive action, just a "no". */}
+                            <ChipButton
+                              label="Kabul"
+                              tone="success"
                               disabled={busy}
                               onPress={() => acceptMutation.mutate(request.friendshipId)}
-                              accessibilityRole="button"
                               accessibilityLabel={`${request.user.displayName} isteğini kabul et`}
-                            >
-                              <Text style={styles.smallButtonText}>Kabul</Text>
-                            </Pressable>
-                            <Pressable
-                              style={[styles.ghostSmallButton, busy && styles.buttonDisabled]}
+                            />
+                            <ChipButton
+                              label="Reddet"
+                              tone="neutral"
                               disabled={busy}
                               onPress={() => declineMutation.mutate(request.friendshipId)}
-                              accessibilityRole="button"
                               accessibilityLabel={`${request.user.displayName} isteğini reddet`}
-                            >
-                              <Text style={styles.ghostSmallButtonText}>Reddet</Text>
-                            </Pressable>
+                            />
                           </>
                         }
                       />
@@ -302,15 +330,13 @@ export default function FriendsScreen(): React.JSX.Element {
                         user={request.user}
                         subtitle="Yanıt bekleniyor"
                         trailing={
-                          <Pressable
-                            style={[styles.ghostSmallButton, busy && styles.buttonDisabled]}
+                          <ChipButton
+                            label="İptal"
+                            tone="neutral"
                             disabled={busy}
                             onPress={() => removeMutation.mutate(request.friendshipId)}
-                            accessibilityRole="button"
                             accessibilityLabel={`${request.user.displayName} isteğini iptal et`}
-                          >
-                            <Text style={styles.ghostSmallButtonText}>İptal</Text>
-                          </Pressable>
+                          />
                         }
                       />
                     ))}
@@ -364,13 +390,12 @@ function ColdStart({ hasOutgoing }: { readonly hasOutgoing: boolean }): React.JS
             'İstek kabul edilince o kişi buraya düşer.'}
       </Text>
       <View style={styles.coldStartList}>
-        <Text style={styles.coldStartItem}>
-          • Haftalık XP sıralamasında arkadaşlarınla yarışırsın.
-        </Text>
-        <Text style={styles.coldStartItem}>
-          • Bir arkadaşını 3–7 günlük düelloya çağırabilirsin.
-        </Text>
-        <Text style={styles.coldStartItem}>• Serileri ve seviyeleri buradan takip edersin.</Text>
+        {COLD_START_ITEMS.map((item) => (
+          <View key={item.icon} style={styles.coldStartItem}>
+            <Ionicons name={item.icon} size={ICON_SIZE} color={colors.accent} />
+            <Text style={styles.coldStartItemText}>{item.text}</Text>
+          </View>
+        ))}
       </View>
       <Text style={styles.coldStartFooter}>
         Kullanıcı adını bilmiyorsan, arkadaşından profilindeki adı istemen yeterli.
@@ -394,6 +419,28 @@ function Section({
   );
 }
 
+/** Transient result of a mutation. Tappable to dismiss, as it always was. */
+function Notice({
+  message,
+  onDismiss,
+}: {
+  readonly message: string;
+  readonly onDismiss: () => void;
+}): React.JSX.Element {
+  return (
+    <Pressable
+      onPress={onDismiss}
+      accessibilityRole="button"
+      accessibilityLabel="Bildirimi kapat"
+      style={styles.notice}
+    >
+      <Ionicons name="information-circle" size={ICON_SIZE} color={colors.accent} />
+      <Text style={styles.noticeText}>{message}</Text>
+      <Ionicons name="close" size={ICON_SIZE} color={colors.textMuted} />
+    </Pressable>
+  );
+}
+
 function ErrorBlock({
   message,
   onRetry,
@@ -403,15 +450,18 @@ function ErrorBlock({
 }): React.JSX.Element {
   return (
     <View style={styles.errorBlock}>
-      <Text style={styles.errorText}>{message}</Text>
-      <Pressable
-        style={styles.secondaryButton}
+      <View style={styles.errorRow}>
+        <Ionicons name="alert-circle" size={ICON_SIZE} color={colors.danger} />
+        <Text style={styles.errorText}>{message}</Text>
+      </View>
+      <Button
+        label="Tekrar dene"
+        tone="neutral"
+        size="small"
+        block={false}
         onPress={onRetry}
-        accessibilityRole="button"
         accessibilityLabel="Tekrar dene"
-      >
-        <Text style={styles.secondaryButtonText}>Tekrar dene</Text>
-      </Pressable>
+      />
     </View>
   );
 }
@@ -426,6 +476,7 @@ function describeError(error: unknown): string {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.lg, gap: spacing.md, paddingBottom: spacing.xxl },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   title: { ...type.title, color: colors.text },
 
   searchBox: {
@@ -433,73 +484,50 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     backgroundColor: colors.surfaceRaised,
-    borderWidth: 1,
-    borderColor: colors.border,
+    // A stronger outline than a card's: this is a control, and it has to look like
+    // the one thing on the screen the user is meant to touch first.
+    borderWidth: 2,
+    borderColor: colors.borderStrong,
   },
+  // Turns primary once there is a query, which is the only "active" cue available
+  // without tracking focus state and changing behaviour.
+  searchBoxActive: { borderColor: colors.accent, backgroundColor: colors.surface },
   searchInput: { ...type.body, color: colors.text, flex: 1, paddingVertical: spacing.md },
-  clearIcon: { ...type.label, color: colors.textFaint },
 
   hint: { ...type.caption, color: colors.textFaint },
   notice: {
-    ...type.caption,
-    color: colors.accentBright,
-    backgroundColor: colors.surface,
-    borderRadius: radius.sm,
-    padding: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.sm + 2,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    borderColor: colors.accent,
+    backgroundColor: colors.accentSoft,
   },
+  noticeText: { ...type.caption, color: colors.accentDark, flex: 1 },
 
   section: { gap: spacing.sm, marginTop: spacing.sm },
-  sectionTitle: {
-    ...type.label,
-    color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
+  sectionTitle: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase' },
   sectionBody: { gap: spacing.sm },
 
   inlineLoader: { marginTop: spacing.xl },
   empty: { ...type.body, color: colors.textFaint, paddingVertical: spacing.md },
 
-  coldStart: {
-    padding: spacing.lg,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.sm,
-  },
+  coldStart: { ...cardStyle, padding: spacing.lg, gap: spacing.sm },
   coldStartTitle: { ...type.heading, color: colors.text },
   coldStartBody: { ...type.body, color: colors.textMuted },
-  coldStartList: { gap: spacing.xs, marginTop: spacing.xs },
-  coldStartItem: { ...type.body, color: colors.textMuted },
+  coldStartList: { gap: spacing.sm, marginTop: spacing.xs },
+  coldStartItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  coldStartItemText: { ...type.body, color: colors.textMuted, flex: 1 },
   coldStartFooter: { ...type.caption, color: colors.textFaint, marginTop: spacing.xs },
 
-  smallButton: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.sm,
-    backgroundColor: colors.accent,
-  },
-  smallButtonText: { ...type.label, color: '#FFFFFF' },
-  ghostSmallButton: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.sm,
-    backgroundColor: colors.surfaceRaised,
-  },
-  ghostSmallButtonText: { ...type.label, color: colors.textMuted },
-  trailingLabel: { ...type.caption, color: colors.textFaint },
-  buttonDisabled: { opacity: 0.5 },
+  trailingLabelGroup: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  trailingLabel: { ...type.caption, color: colors.textMuted },
 
   errorBlock: { gap: spacing.sm, alignItems: 'flex-start', paddingVertical: spacing.md },
-  errorText: { ...type.body, color: colors.danger },
-  secondaryButton: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceRaised,
-  },
-  secondaryButtonText: { ...type.label, color: colors.text },
+  errorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  errorText: { ...type.body, color: colors.danger, flex: 1 },
 });

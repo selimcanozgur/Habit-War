@@ -28,6 +28,10 @@
  * stat sheet keeps a stable reading order everywhere it appears, exactly as the
  * radar would have.
  *
+ * Each bar is built like the XP bar — thick, fully rounded, with a lighter line along
+ * the top of the fill — because that bar is the app's signature object and a stat is
+ * the same idea at a smaller size. On a white ground a thin grey rule would vanish.
+ *
  * Bars animate their width on mount and whenever a value changes, reusing XpBar's
  * approach: a shared value driven with `withTiming` and read back in an animated
  * style. Growth is the point — a stat that snaps into place reads as a static
@@ -41,6 +45,7 @@ import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withTimi
 import type { Stat } from '@habitwar/domain';
 
 import { colors, radius, spacing, statColors, statLabels, type } from '../theme';
+import { cardStyle } from './Button';
 
 /** Fixed display order — matches ALL_STATS in the domain package. */
 const STAT_ORDER: readonly Stat[] = ['STR', 'END', 'INT', 'WIS', 'CHA', 'DEX'];
@@ -57,6 +62,11 @@ const STAGGER_MS = 60;
  * at least 10 keeps early progress honest and proportionate.
  */
 const MIN_SCALE = 10;
+
+/** Two-thirds of the XP bar's track: still an object, but not competing with it. */
+const TRACK_HEIGHT = 14;
+/** Reused from XpBar: a white veil over a saturated fill, not a new colour. */
+const SHINE_OPACITY = 0.42;
 
 export interface StatRadarProps {
   /** Displayed stat points, one entry per stat. */
@@ -88,7 +98,12 @@ export function StatRadar({ stats }: StatRadarProps): React.JSX.Element {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>Statlar</Text>
-        <Text style={styles.total}>{total} puan</Text>
+        {/* The total is the card's headline figure, so it gets display type and the
+            unit is demoted to a caption beside it. */}
+        <View style={styles.totalGroup}>
+          <Text style={styles.total}>{total}</Text>
+          <Text style={styles.totalUnit}>puan</Text>
+        </View>
       </View>
 
       <View style={styles.rows}>
@@ -145,7 +160,9 @@ function StatRow({ stat, value, ratio, delayMs }: StatRowProps): React.JSX.Eleme
           A hairline of colour stays visible even at zero, so an untouched stat still
           carries its identity colour and the row never looks broken.
         */}
-        <Animated.View style={[styles.fill, { backgroundColor: color }, fillStyle]} />
+        <Animated.View style={[styles.fill, { backgroundColor: color }, fillStyle]}>
+          <View style={styles.shine} />
+        </Animated.View>
       </View>
 
       <Text style={[styles.statValue, { color }]}>{value}</Text>
@@ -154,17 +171,12 @@ function StatRow({ stat, value, ratio, delayMs }: StatRowProps): React.JSX.Eleme
 }
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    gap: spacing.md,
-  },
+  container: { ...cardStyle, gap: spacing.md },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  title: { ...type.heading, color: colors.text },
-  total: { ...type.label, color: colors.textMuted, fontVariant: ['tabular-nums'] },
+  title: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase' },
+  totalGroup: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs },
+  total: { ...type.display, color: colors.text },
+  totalUnit: { ...type.caption, color: colors.textMuted },
   empty: { ...type.body, color: colors.textFaint, lineHeight: 21 },
 
   rows: { gap: spacing.sm },
@@ -174,12 +186,25 @@ const styles = StyleSheet.create({
   statLabel: { ...type.label, color: colors.textMuted, width: 92 },
   track: {
     flex: 1,
-    height: 8,
+    height: TRACK_HEIGHT,
     borderRadius: radius.pill,
-    backgroundColor: colors.surfaceRaised,
+    backgroundColor: colors.surfaceSunken,
     overflow: 'hidden',
   },
-  fill: { height: '100%', borderRadius: radius.pill, minWidth: 3 },
+  fill: {
+    height: '100%',
+    borderRadius: radius.pill,
+    justifyContent: 'flex-start',
+    minWidth: spacing.xs,
+  },
+  shine: {
+    height: 3,
+    marginTop: 2,
+    marginHorizontal: spacing.xs,
+    borderRadius: radius.pill,
+    backgroundColor: colors.textOnAccent,
+    opacity: SHINE_OPACITY,
+  },
   statValue: {
     ...type.label,
     width: 32,

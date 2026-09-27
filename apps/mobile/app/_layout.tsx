@@ -1,36 +1,33 @@
 /**
  * App root.
  *
+ * Holds the three things every screen depends on: the query client, the font load,
+ * and the tab bar.
+ *
  * Auth is still the API's dev mode, so the token provider sends `x-dev-user-id`.
  * When Clerk sign-in lands, only this provider changes — the API client already
  * takes whatever headers it is handed.
  */
 
+import { Ionicons } from '@expo/vector-icons';
+import {
+  Nunito_400Regular,
+  Nunito_600SemiBold,
+  Nunito_700Bold,
+  Nunito_800ExtraBold,
+  useFonts,
+} from '@expo-google-fonts/nunito';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import { Tabs } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useMemo } from 'react';
-import { Text, type ColorValue } from 'react-native';
+import { ActivityIndicator, View, type ColorValue } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ApiError, setAuthHeaderProvider } from '../src/api/client';
 import { colors } from '../src/theme';
-
-/**
- * Tab icon factory.
- *
- * No icon set is installed, so a glyph stands in. Kept as a factory so the colour
- * still tracks the active/inactive tint rather than being hardcoded.
- */
-function tabGlyph(glyph: string) {
-  // `color` arrives as RN's ColorValue, not string — it can be an opaque platform
-  // colour — so it is passed straight through to the style rather than narrowed.
-  return function TabGlyph({ color }: { color: ColorValue }): React.JSX.Element {
-    return <Text style={{ color, fontSize: 18, lineHeight: 22 }}>{glyph}</Text>;
-  };
-}
 
 /** Dev-mode identity. Replaced by a Clerk session token. */
 const DEV_USER_ID = (Constants.expoConfig?.extra?.['devUserId'] as string | undefined) ?? '';
@@ -41,7 +38,35 @@ setAuthHeaderProvider(async () => {
   return headers;
 });
 
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
+/**
+ * Tab icon.
+ *
+ * Filled when active, outlined when not — the convention every iOS and Android user
+ * already reads without being taught, and the reason the active tab does not need to
+ * rely on colour alone.
+ */
+function tabIcon(active: IoniconName, inactive: IoniconName) {
+  return function TabIcon({
+    color,
+    focused,
+  }: {
+    color: ColorValue;
+    focused: boolean;
+  }): React.JSX.Element {
+    return <Ionicons name={focused ? active : inactive} size={24} color={color as string} />;
+  };
+}
+
 export default function RootLayout(): React.JSX.Element {
+  const [fontsLoaded] = useFonts({
+    Nunito_400Regular,
+    Nunito_600SemiBold,
+    Nunito_700Bold,
+    Nunito_800ExtraBold,
+  });
+
   const queryClient = useMemo(
     () =>
       new QueryClient({
@@ -61,11 +86,22 @@ export default function RootLayout(): React.JSX.Element {
     [],
   );
 
+  // Held rather than rendered with a fallback face: every size in the type scale is
+  // set for Nunito's metrics, so a system-font first paint would reflow the whole
+  // app a beat later.
+  if (!fontsLoaded) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={colors.accent} />
+      </View>
+    );
+  }
+
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
-          <StatusBar style="light" />
+          <StatusBar style="dark" />
           <Tabs
             screenOptions={{
               headerShown: false,
@@ -73,29 +109,49 @@ export default function RootLayout(): React.JSX.Element {
               tabBarStyle: {
                 backgroundColor: colors.surface,
                 borderTopColor: colors.border,
+                borderTopWidth: 2,
+                // Tall enough for a 24px icon, its label, and breathing room above
+                // the home indicator. At 62 the descenders in "Bugün" were clipped.
+                height: 74,
+                paddingTop: 8,
+                paddingBottom: 12,
               },
-              tabBarActiveTintColor: colors.accentBright,
+              tabBarActiveTintColor: colors.accent,
               tabBarInactiveTintColor: colors.textFaint,
-              tabBarLabelStyle: { fontSize: 11, fontWeight: '500' },
+              tabBarLabelStyle: {
+                fontFamily: 'Nunito_700Bold',
+                fontSize: 11,
+                // Turkish labels carry descenders and dotted capitals; the default
+                // line height crops both.
+                lineHeight: 15,
+                marginTop: 2,
+              },
             }}
           >
-            {/*
-              Tab order follows the spec's information architecture (§9), with the
-              competitive tab in the centre where the spec wants the emphasis. No icon
-              library is installed yet, so each tab draws a glyph — replacing these with
-              real icons is a one-line change per screen.
-            */}
+            {/* Order follows the spec's information architecture (§9). */}
             <Tabs.Screen
               name="index"
-              options={{ title: 'Ana Sayfa', tabBarIcon: tabGlyph('◈') }}
+              options={{ title: 'Bugün', tabBarIcon: tabIcon('flash', 'flash-outline') }}
             />
-            <Tabs.Screen name="feed" options={{ title: 'Akış', tabBarIcon: tabGlyph('≡') }} />
-            <Tabs.Screen name="battle" options={{ title: 'Savaş', tabBarIcon: tabGlyph('⚔') }} />
+            <Tabs.Screen
+              name="feed"
+              options={{ title: 'Akış', tabBarIcon: tabIcon('people', 'people-outline') }}
+            />
+            <Tabs.Screen
+              name="battle"
+              options={{ title: 'Savaş', tabBarIcon: tabIcon('flame', 'flame-outline') }}
+            />
             <Tabs.Screen
               name="friends"
-              options={{ title: 'Arkadaşlar', tabBarIcon: tabGlyph('◎') }}
+              options={{
+                title: 'Arkadaşlar',
+                tabBarIcon: tabIcon('person-add', 'person-add-outline'),
+              }}
             />
-            <Tabs.Screen name="profile" options={{ title: 'Profil', tabBarIcon: tabGlyph('☗') }} />
+            <Tabs.Screen
+              name="profile"
+              options={{ title: 'Profil', tabBarIcon: tabIcon('shield', 'shield-outline') }}
+            />
           </Tabs>
         </QueryClientProvider>
       </SafeAreaProvider>

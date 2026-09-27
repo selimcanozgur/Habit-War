@@ -5,19 +5,22 @@
  * machine-generated and human posts and they carry very different weight:
  *
  *  - `DAILY_DIGEST` is the spec's anti-spam default (§5.1): a whole day rolled into
- *    one row — "Selimcan bugün 3 seans, 145 XP". It renders as a stat strip, since
- *    the numbers are the content.
+ *    one row — "Selimcan bugün 3 seans, 145 XP". It renders as a stat strip on a
+ *    recessed fill, with the numbers at display size, since the numbers *are* the
+ *    content.
  *  - `SESSION_COMPLETE` is a single session the user chose to share — "30 dk okudu,
- *    +42 XP". It renders as one inline line, deliberately quieter than a digest so a
- *    shared session never out-shouts a day's work.
- *  - `LEVEL_UP` and `ACHIEVEMENT` are celebrations: accent-tinted, badge-led.
+ *    +42 XP". It renders as one inline line with no fill behind it, deliberately
+ *    quieter than a digest so a shared session never out-shouts a day's work.
+ *  - `LEVEL_UP` and `ACHIEVEMENT` are celebrations: the whole card takes the accent
+ *    tint and border, and a filled disc leads the row.
  *  - Everything else is plain text, which is what an unknown future type degrades to.
  *
  * Moderation is not optional here. App Store guideline 1.2 requires a report and a
  * block path on any user-generated content feed, so every single card exposes both —
- * via the ⋯ button and via long-press, since users reach for either.
+ * via the overflow button and via long-press, since users reach for either.
  */
 
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { memo, useCallback, useState } from 'react';
 import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -31,6 +34,7 @@ import Animated, {
 
 import { formatRelativeTime, type Post, type ReportReason } from '../api/feed';
 import { colors, radius, spacing, type } from '../theme';
+import { Button, cardStyle } from './Button';
 
 export interface PostCardProps {
   readonly post: Post;
@@ -49,6 +53,12 @@ const REPORT_REASONS: readonly { readonly code: ReportReason; readonly label: st
   { code: 'VIOLENCE', label: 'Şiddet' },
   { code: 'OTHER', label: 'Diğer' },
 ];
+
+/** Footer and overflow icons. Large enough to hit, small enough to stay chrome. */
+const ICON_SIZE = 20;
+/** Icons that sit inside a disc or beside caption text. */
+const ICON_SIZE_SMALL = 18;
+const ICON_SIZE_DISC = 22;
 
 function PostCardImpl({ post, onToggleLike, onReport, onBlock }: PostCardProps): React.JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -102,10 +112,13 @@ function PostCardImpl({ post, onToggleLike, onReport, onBlock }: PostCardProps):
     setMenuOpen((open) => !open);
   }, []);
 
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+
   const initial = (post.author.displayName.trim()[0] ?? '?').toLocaleUpperCase('tr-TR');
+  const celebration = isCelebration(post.type);
 
   return (
-    <Animated.View style={[styles.card, isCelebration(post.type) && styles.cardCelebration]}>
+    <Animated.View style={[styles.card, celebration && styles.cardCelebration]}>
       {/* Long-press anywhere on the body is the second route to moderation. */}
       <Pressable
         onLongPress={toggleMenu}
@@ -143,7 +156,7 @@ function PostCardImpl({ post, onToggleLike, onReport, onBlock }: PostCardProps):
             accessibilityRole="button"
             accessibilityLabel="Gönderi seçenekleri"
           >
-            <Text style={styles.menuGlyph}>⋯</Text>
+            <Ionicons name="ellipsis-horizontal" size={ICON_SIZE} color={colors.textMuted} />
           </Pressable>
         </View>
 
@@ -151,35 +164,32 @@ function PostCardImpl({ post, onToggleLike, onReport, onBlock }: PostCardProps):
       </Pressable>
 
       {menuOpen && (
+        // Stacked full-width buttons rather than bordered rows: the app has one
+        // pressable vocabulary, and a moderation menu is not special enough to invent
+        // a second. Full width because the block action names the account it blocks,
+        // which does not fit on a chip.
         <View style={styles.menu}>
-          <Pressable
+          <Button
+            label="Şikayet et"
+            tone="neutral"
+            size="small"
             onPress={openReportSheet}
-            style={styles.menuItem}
-            accessibilityRole="button"
             accessibilityLabel="Gönderiyi şikayet et"
-          >
-            <Text style={styles.menuItemText}>Şikayet et</Text>
-          </Pressable>
-          <View style={styles.menuDivider} />
-          <Pressable
+          />
+          <Button
+            label={`@${post.author.username} kullanıcısını engelle`}
+            tone="danger"
+            size="small"
             onPress={confirmBlock}
-            style={styles.menuItem}
-            accessibilityRole="button"
             accessibilityLabel={`${post.author.displayName} kullanıcısını engelle`}
-          >
-            <Text style={[styles.menuItemText, styles.menuItemDanger]}>
-              @{post.author.username} kullanıcısını engelle
-            </Text>
-          </Pressable>
-          <View style={styles.menuDivider} />
-          <Pressable
-            onPress={() => setMenuOpen(false)}
-            style={styles.menuItem}
-            accessibilityRole="button"
+          />
+          <Button
+            label="Vazgeç"
+            tone="neutral"
+            size="small"
+            onPress={closeMenu}
             accessibilityLabel="Menüyü kapat"
-          >
-            <Text style={[styles.menuItemText, styles.menuItemMuted]}>Vazgeç</Text>
-          </Pressable>
+          />
         </View>
       )}
 
@@ -196,11 +206,17 @@ function PostCardImpl({ post, onToggleLike, onReport, onBlock }: PostCardProps):
               : `Beğen. ${post.likeCount} beğeni.`
           }
         >
-          <Animated.Text
-            style={[styles.footerIcon, post.likedByMe && styles.footerIconLiked, heartStyle]}
-          >
-            {post.likedByMe ? '♥' : '♡'}
-          </Animated.Text>
+          {/*
+            The scale animation moves the wrapper, not the glyph: an icon font cannot
+            be scaled through `fontSize` on the UI thread the way a transform can.
+          */}
+          <Animated.View style={heartStyle}>
+            <Ionicons
+              name={post.likedByMe ? 'heart' : 'heart-outline'}
+              size={ICON_SIZE}
+              color={post.likedByMe ? colors.danger : colors.textMuted}
+            />
+          </Animated.View>
           <Text style={[styles.footerCount, post.likedByMe && styles.footerCountLiked]}>
             {post.likeCount}
           </Text>
@@ -211,7 +227,7 @@ function PostCardImpl({ post, onToggleLike, onReport, onBlock }: PostCardProps):
           accessibilityRole="text"
           accessibilityLabel={`${post.replyCount} yorum`}
         >
-          <Text style={styles.footerIcon}>💬</Text>
+          <Ionicons name="chatbubble-outline" size={ICON_SIZE} color={colors.textMuted} />
           <Text style={styles.footerCount}>{post.replyCount}</Text>
         </View>
       </View>
@@ -243,8 +259,8 @@ function PostBody({ post }: { readonly post: Post }): React.JSX.Element {
 
           {stats && (
             <View style={styles.statStrip}>
-              <StatChip value={`${stats.sessionCount}`} label="seans" />
-              <StatChip value={`${stats.totalMinutes}`} label="dakika" />
+              <StatChip value={`${stats.sessionCount}`} label="SEANS" />
+              <StatChip value={`${stats.totalMinutes}`} label="DAKİKA" />
               <StatChip value={`+${stats.totalXp}`} label="XP" highlight />
             </View>
           )}
@@ -269,7 +285,8 @@ function PostBody({ post }: { readonly post: Post }): React.JSX.Element {
 
     case 'SESSION_COMPLETE': {
       const session = post.sessionStats;
-      // One session, one line. The digest above is the loud format; this stays small.
+      // One session, one line. The digest above is the loud format; this stays small,
+      // which is why there is no fill and no disc behind the icon here.
       const parts: string[] = [];
       if (session?.durationMinutes !== undefined) parts.push(`${session.durationMinutes} dk`);
       if (session?.habitName) parts.push(session.habitName);
@@ -278,7 +295,7 @@ function PostBody({ post }: { readonly post: Post }): React.JSX.Element {
       return (
         <View style={styles.body}>
           <View style={styles.sessionRow}>
-            <Text style={styles.sessionIcon}>⏱</Text>
+            <Ionicons name="time-outline" size={ICON_SIZE_SMALL} color={colors.textMuted} />
             <Text style={styles.sessionText} numberOfLines={2}>
               {summary}
             </Text>
@@ -293,7 +310,9 @@ function PostBody({ post }: { readonly post: Post }): React.JSX.Element {
       return (
         <View style={styles.body}>
           <View style={styles.celebrationRow}>
-            <Text style={styles.celebrationGlyph}>⬆️</Text>
+            <View style={[styles.celebrationDisc, styles.celebrationDiscLevel]}>
+              <Ionicons name="trending-up" size={ICON_SIZE_DISC} color={colors.textOnAccent} />
+            </View>
             <Text style={styles.celebrationText}>
               {post.level !== undefined
                 ? `Seviye ${post.level}'e yükseldi!`
@@ -308,7 +327,9 @@ function PostBody({ post }: { readonly post: Post }): React.JSX.Element {
       return (
         <View style={styles.body}>
           <View style={styles.celebrationRow}>
-            <Text style={styles.celebrationGlyph}>🏅</Text>
+            <View style={[styles.celebrationDisc, styles.celebrationDiscBadge]}>
+              <Ionicons name="ribbon" size={ICON_SIZE_DISC} color={colors.textOnAccent} />
+            </View>
             <Text style={styles.celebrationText}>
               {post.achievementName
                 ? `"${post.achievementName}" rozetini kazandı!`
@@ -323,6 +344,7 @@ function PostBody({ post }: { readonly post: Post }): React.JSX.Element {
       return (
         <View style={styles.body}>
           <View style={styles.duelRow}>
+            <Ionicons name="flame" size={ICON_SIZE_SMALL} color={colors.warningDark} />
             <Text style={styles.duelLabel}>DÜELLO SONUCU</Text>
           </View>
           <Text style={styles.content}>{post.content || 'Bir düello tamamlandı.'}</Text>
@@ -399,52 +421,68 @@ function digestDayLabel(digestDate: string | undefined): string {
 /** Feed lists get long; re-rendering untouched cards on every page append is waste. */
 export const PostCard = memo(PostCardImpl);
 
+const AVATAR = 44;
+const DISC = 40;
+
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  cardCelebration: { borderColor: colors.accent, backgroundColor: colors.surfaceRaised },
+  card: { ...cardStyle, gap: spacing.sm },
+  /**
+   * A celebration is the one card allowed to colour itself. The tint plus the accent
+   * border is enough — no shadow, because in this language depth is an edge.
+   */
+  cardCelebration: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
 
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  avatar: { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.surfaceRaised },
-  avatarFallback: { alignItems: 'center', justifyContent: 'center' },
-  avatarInitial: { ...type.heading, color: colors.textMuted },
+  avatar: {
+    width: AVATAR,
+    height: AVATAR,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceRaised,
+  },
+  avatarFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accentSoft,
+  },
+  avatarInitial: { ...type.heading, color: colors.accentDark },
   headerText: { flex: 1, gap: 2 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   displayName: { ...type.heading, color: colors.text, flexShrink: 1 },
   levelBadge: {
-    paddingHorizontal: spacing.xs,
+    paddingHorizontal: spacing.sm,
     paddingVertical: 1,
     borderRadius: radius.pill,
     backgroundColor: colors.accent,
   },
-  levelBadgeText: { ...type.caption, color: '#FFFFFF' },
+  levelBadgeText: { ...type.caption, color: colors.textOnAccent },
   meta: { ...type.caption, color: colors.textFaint },
   menuButton: { paddingHorizontal: spacing.xs, paddingVertical: spacing.xs },
-  menuGlyph: { ...type.heading, color: colors.textMuted },
 
   body: { gap: spacing.sm },
   content: { ...type.body, color: colors.text, lineHeight: 21 },
-  media: { width: '100%', aspectRatio: 4 / 3, borderRadius: radius.sm, backgroundColor: colors.surfaceRaised },
+  media: {
+    width: '100%',
+    aspectRatio: 4 / 3,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceRaised,
+  },
 
-  digestHeadline: { ...type.body, color: colors.text, fontWeight: '600' },
+  digestHeadline: { ...type.heading, color: colors.text },
   digestFootnote: { ...type.caption, color: colors.textMuted },
+  /** Recessed, so the day's totals read as a panel set into the card. */
   statStrip: {
     flexDirection: 'row',
     gap: spacing.sm,
-    backgroundColor: colors.bg,
-    borderRadius: radius.sm,
-    padding: spacing.sm,
+    backgroundColor: colors.surfaceSunken,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
   },
   statChip: { flex: 1, alignItems: 'center', gap: 2 },
-  statChipValue: { ...type.heading, color: colors.text, fontVariant: ['tabular-nums'] },
-  statChipValueHighlight: { color: colors.success },
-  statChipLabel: { ...type.caption, color: colors.textFaint },
+  /** Display size: on a digest the number is the post. */
+  statChipValue: { ...type.display, color: colors.text },
+  statChipValueHighlight: { color: colors.successDark },
+  statChipLabel: { ...type.overline, color: colors.textMuted },
 
   sessionRow: {
     flexDirection: 'row',
@@ -452,33 +490,33 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingVertical: spacing.xs,
   },
-  sessionIcon: { ...type.body, color: colors.textMuted },
   sessionText: { ...type.body, color: colors.text, flex: 1 },
-  sessionXp: { ...type.label, color: colors.success, fontVariant: ['tabular-nums'] },
+  sessionXp: { ...type.label, color: colors.successDark, fontVariant: ['tabular-nums'] },
 
-  celebrationRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  celebrationGlyph: { fontSize: 22 },
-  celebrationText: { ...type.heading, color: colors.accentBright, flex: 1 },
-
-  duelRow: { flexDirection: 'row' },
-  duelLabel: {
-    ...type.caption,
-    color: colors.warning,
-    letterSpacing: 1,
+  celebrationRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  celebrationDisc: {
+    width: DISC,
+    height: DISC,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  celebrationDiscLevel: { backgroundColor: colors.accent },
+  /** Warmth for a badge, so the two celebrations are not the same card twice. */
+  celebrationDiscBadge: { backgroundColor: colors.warning },
+  // Accent *dark* rather than bright: the text sits on the tinted celebration fill.
+  celebrationText: { ...type.heading, color: colors.accentDark, flex: 1 },
 
+  duelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  duelLabel: { ...type.overline, color: colors.warningDark },
+
+  /** A tinted tray, so the open menu reads as attached to this card and not the list. */
   menu: {
-    backgroundColor: colors.bg,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceRaised,
+    borderRadius: radius.md,
+    padding: spacing.sm,
   },
-  menuItem: { paddingVertical: spacing.sm, paddingHorizontal: spacing.md },
-  menuItemText: { ...type.label, color: colors.text },
-  menuItemDanger: { color: colors.danger },
-  menuItemMuted: { color: colors.textFaint },
-  menuDivider: { height: 1, backgroundColor: colors.border },
 
   footer: {
     flexDirection: 'row',
@@ -487,8 +525,6 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xs,
   },
   footerAction: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  footerIcon: { fontSize: 16, color: colors.textMuted },
-  footerIconLiked: { color: colors.danger },
   footerCount: { ...type.label, color: colors.textMuted, fontVariant: ['tabular-nums'] },
   footerCountLiked: { color: colors.danger },
 });

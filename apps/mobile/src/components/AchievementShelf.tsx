@@ -2,15 +2,24 @@
  * The badge shelf.
  *
  * Locked badges are shown, not hidden. A shelf of only what you already have is a
- * receipt; a shelf that also shows what is within reach is a goal. They are dimmed
- * and desaturated rather than removed, and their description stays readable so the
- * user can see how to earn them — a locked badge with a hidden description is just
- * a grey square.
+ * receipt; a shelf that also shows what is within reach is a goal. Their description
+ * stays readable so the user can see how to earn them — a locked badge with a hidden
+ * description is just a grey square.
+ *
+ * Earned and locked are separated by more than opacity, which on a white ground is
+ * only a faint grey wash and reads as "still loading". An earned badge is a white
+ * card with a solid tier-coloured outline and a filled medal; a locked one is sunken
+ * into the page behind a dashed outline, with a padlock where the medal would be. The
+ * difference survives a screenshot, a bright screen, and colour blindness.
  *
  * Earned badges are sorted first, then by tier descending, so the shelf leads with
  * the user's best work.
+ *
+ * Badge names come from the backend and are rendered verbatim — they are not this
+ * component's copy to translate.
  */
 
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -18,6 +27,9 @@ import Animated, { FadeIn } from 'react-native-reanimated';
 
 import type { Achievement, AchievementTier } from '../api/profile';
 import { colors, radius, spacing, type } from '../theme';
+import { cardStyle } from './Button';
+
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
 /** Tier accent colours, reusing theme tokens rather than inventing metal shades. */
 const TIER_COLORS: Readonly<Record<AchievementTier, string>> = {
@@ -34,6 +46,21 @@ const TIER_LABELS: Readonly<Record<AchievementTier, string>> = {
   PLATINUM: 'Platin',
 };
 
+/**
+ * Tier glyphs.
+ *
+ * A real icon per tier rather than the badge's initials: initials of a
+ * backend-supplied English name carry no meaning at 44px, whereas the escalating
+ * ribbon → medal → trophy → diamond sequence tells the user which tier they are
+ * looking at without reading anything.
+ */
+const TIER_ICONS: Readonly<Record<AchievementTier, IoniconName>> = {
+  BRONZE: 'ribbon',
+  SILVER: 'medal',
+  GOLD: 'trophy',
+  PLATINUM: 'diamond',
+};
+
 /** Higher sorts first. Unknown tiers fall to the bottom rather than throwing. */
 const TIER_RANK: Readonly<Record<AchievementTier, number>> = {
   PLATINUM: 4,
@@ -41,6 +68,8 @@ const TIER_RANK: Readonly<Record<AchievementTier, number>> = {
   SILVER: 2,
   BRONZE: 1,
 };
+
+const MEDAL_ICON_SIZE = 22;
 
 function tierOf(raw: string): AchievementTier | null {
   return raw in TIER_COLORS ? (raw as AchievementTier) : null;
@@ -83,9 +112,11 @@ export function AchievementShelf({ achievements }: AchievementShelfProps): React
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>Rozetler</Text>
-        <Text style={styles.counter}>
-          {earnedCount} / {achievements.length}
-        </Text>
+        {/* How many are earned is the card's headline number; the total is context. */}
+        <View style={styles.counterGroup}>
+          <Text style={styles.counterEarned}>{earnedCount}</Text>
+          <Text style={styles.counterTotal}>/ {achievements.length}</Text>
+        </View>
       </View>
 
       <View style={styles.grid}>
@@ -114,13 +145,16 @@ export function AchievementShelf({ achievements }: AchievementShelfProps): React
               <View
                 style={[
                   styles.medal,
-                  { borderColor: accent },
-                  earned ? { backgroundColor: accent } : styles.medalLocked,
+                  earned
+                    ? { backgroundColor: accent, borderColor: accent }
+                    : styles.medalLocked,
                 ]}
               >
-                <Text style={[styles.medalText, earned ? styles.medalTextEarned : { color: accent }]}>
-                  {initialsOf(item.name)}
-                </Text>
+                <Ionicons
+                  name={earned ? (tier ? TIER_ICONS[tier] : 'ribbon') : 'lock-closed'}
+                  size={MEDAL_ICON_SIZE}
+                  color={earned ? colors.textOnAccent : colors.textFaint}
+                />
               </View>
 
               <Text
@@ -153,14 +187,6 @@ function rankOf(raw: string): number {
   return tier ? TIER_RANK[tier] : 0;
 }
 
-/** Up to two initials — a stand-in until the badge artwork exists. */
-function initialsOf(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  const first = words[0]?.[0] ?? '?';
-  const second = words[1]?.[0] ?? '';
-  return (first + second).toLocaleUpperCase('tr-TR');
-}
-
 /** Defensive: an unparseable timestamp must not blank the card. */
 function formatEarnedAt(iso: string): string {
   const date = new Date(iso);
@@ -169,17 +195,12 @@ function formatEarnedAt(iso: string): string {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    gap: spacing.md,
-  },
+  container: { ...cardStyle, gap: spacing.md },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  title: { ...type.heading, color: colors.text },
-  counter: { ...type.label, color: colors.textMuted, fontVariant: ['tabular-nums'] },
+  title: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase' },
+  counterGroup: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs },
+  counterEarned: { ...type.display, color: colors.text },
+  counterTotal: { ...type.caption, color: colors.textMuted, fontVariant: ['tabular-nums'] },
   empty: { ...type.body, color: colors.textFaint, lineHeight: 21 },
 
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
@@ -193,28 +214,32 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     padding: spacing.sm,
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.border,
-    backgroundColor: colors.surfaceRaised,
+    backgroundColor: colors.surface,
   },
-  // Dimmed, not removed: the user should see what is still ahead of them.
-  badgeLocked: { opacity: 0.45, borderStyle: 'dashed' },
+  // Sunken and dashed, not merely dimmed: the user should read "not yet" rather than
+  // "not loaded", and the description must stay legible.
+  badgeLocked: {
+    backgroundColor: colors.surfaceSunken,
+    borderColor: colors.borderStrong,
+    borderStyle: 'dashed',
+  },
 
   medal: {
     width: 44,
     height: 44,
     borderRadius: radius.pill,
     borderWidth: 2,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  medalLocked: { backgroundColor: 'transparent' },
-  medalText: { ...type.label, fontWeight: '700' },
-  medalTextEarned: { color: colors.bg },
+  medalLocked: { backgroundColor: colors.surfaceRaised, borderColor: colors.borderStrong },
 
   badgeName: { ...type.caption, color: colors.text, textAlign: 'center' },
   lockedText: { color: colors.textMuted },
-  badgeTier: { ...type.caption, textTransform: 'uppercase', letterSpacing: 0.5 },
+  badgeTier: { ...type.overline, textTransform: 'uppercase' },
   badgeDescription: {
     ...type.caption,
     color: colors.textMuted,

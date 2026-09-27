@@ -18,6 +18,7 @@
  *     counter drifting.
  */
 
+import { Ionicons } from '@expo/vector-icons';
 import {
   useInfiniteQuery,
   useMutation,
@@ -53,17 +54,28 @@ import {
   type Post,
   type ReportReason,
 } from '../src/api/feed';
+import { Button } from '../src/components/Button';
 import { ComposePost } from '../src/components/ComposePost';
 import { PostCard } from '../src/components/PostCard';
 import { colors, radius, spacing, type } from '../src/theme';
+
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
 type FeedQueryData = InfiniteData<FeedPage, string | null>;
 
 const feedKey = (scope: FeedScope): readonly unknown[] => ['feed', scope];
 
-const SCOPES: readonly { readonly value: FeedScope; readonly label: string }[] = [
-  { value: 'friends', label: 'Arkadaşlar' },
-  { value: 'discover', label: 'Keşfet' },
+/** Icon size for the scope tabs and the state badges. */
+const ICON_SIZE = 18;
+const ICON_SIZE_LARGE = 24;
+
+const SCOPES: readonly {
+  readonly value: FeedScope;
+  readonly label: string;
+  readonly icon: IoniconName;
+}[] = [
+  { value: 'friends', label: 'Arkadaşlar', icon: 'people' },
+  { value: 'discover', label: 'Keşfet', icon: 'compass' },
 ];
 
 export default function FeedScreen(): React.JSX.Element {
@@ -237,6 +249,11 @@ export default function FeedScreen(): React.JSX.Element {
         <View style={styles.header}>
           <Text style={styles.title}>Akış</Text>
 
+          {/*
+            Hand-rolled rather than built from `Button`: these are tabs, and the
+            `tablist`/`tab` roles below are what a screen reader needs to announce
+            "2 / 2 selected". A button component would report them as buttons.
+          */}
           <View style={styles.segment} accessibilityRole="tablist">
             {SCOPES.map((item) => {
               const active = item.value === scope;
@@ -253,6 +270,11 @@ export default function FeedScreen(): React.JSX.Element {
                   accessibilityState={{ selected: active }}
                   accessibilityLabel={`${item.label} akışı`}
                 >
+                  <Ionicons
+                    name={item.icon}
+                    size={ICON_SIZE}
+                    color={active ? colors.textOnAccent : colors.textMuted}
+                  />
                   <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
                     {item.label}
                   </Text>
@@ -268,16 +290,17 @@ export default function FeedScreen(): React.JSX.Element {
           </View>
         ) : feedQuery.isError ? (
           <View style={styles.centered}>
+            <StateBadge icon="cloud-offline" tint={colors.danger} />
             <Text style={styles.stateTitle}>Akış yüklenemedi</Text>
             <Text style={styles.stateBody}>{describeError(feedQuery.error)}</Text>
-            <Pressable
+            <Button
+              label="Tekrar dene"
+              tone="neutral"
+              size="small"
+              block={false}
               onPress={() => void feedQuery.refetch()}
-              style={styles.secondaryButton}
-              accessibilityRole="button"
               accessibilityLabel="Akışı yeniden yükle"
-            >
-              <Text style={styles.secondaryButtonText}>Tekrar dene</Text>
-            </Pressable>
+            />
           </View>
         ) : (
           <FlatList
@@ -315,6 +338,26 @@ export default function FeedScreen(): React.JSX.Element {
 }
 
 /**
+ * A tinted disc behind a state icon.
+ *
+ * On a white ground an empty screen made only of grey text has nothing to look at;
+ * the disc gives the message a visual anchor without pretending to be an illustration.
+ */
+function StateBadge({
+  icon,
+  tint,
+}: {
+  readonly icon: IoniconName;
+  readonly tint: string;
+}): React.JSX.Element {
+  return (
+    <View style={styles.stateBadge}>
+      <Ionicons name={icon} size={ICON_SIZE_LARGE} color={tint} />
+    </View>
+  );
+}
+
+/**
  * The empty state.
  *
  * Worded per scope, because the two emptinesses have different causes and different
@@ -331,25 +374,28 @@ function EmptyFeed({
   if (scope === 'friends') {
     return (
       <View style={styles.empty}>
+        <StateBadge icon="person-add" tint={colors.accent} />
         <Text style={styles.stateTitle}>Henüz arkadaşın yok</Text>
         <Text style={styles.stateBody}>
           Akış, arkadaşlarının seansları ve paylaşımlarıyla dolar. Birini ekle ya da
           Keşfet’ten başlayarak yeni insanlar bul.
         </Text>
-        <Pressable
+        <Button
+          label="Keşfet’e göz at"
+          tone="primary"
+          size="small"
+          block={false}
           onPress={onGoDiscover}
-          style={styles.secondaryButton}
-          accessibilityRole="button"
           accessibilityLabel="Keşfet akışına geç"
-        >
-          <Text style={styles.secondaryButtonText}>Keşfet’e göz at</Text>
-        </Pressable>
+          style={styles.emptyAction}
+        />
       </View>
     );
   }
 
   return (
     <View style={styles.empty}>
+      <StateBadge icon="compass" tint={colors.info} />
       <Text style={styles.stateTitle}>Burası şimdilik sessiz</Text>
       <Text style={styles.stateBody}>
         Keşfet’te gösterilecek yeni bir şey yok. İlk paylaşımı sen yapabilirsin —
@@ -366,6 +412,8 @@ function describeError(error: unknown): string {
   return 'Beklenmeyen bir hata oluştu.';
 }
 
+const STATE_DISC = 44;
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   flex: { flex: 1 },
@@ -373,22 +421,29 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.md },
   title: { ...type.title, color: colors.text },
 
+  /**
+   * A recessed track with the selected tab raised out of it. The sunken fill is what
+   * makes the unselected tab read as unselected without needing a border on each one.
+   */
   segment: {
     flexDirection: 'row',
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surfaceSunken,
     borderRadius: radius.pill,
     padding: spacing.xs,
     gap: spacing.xs,
   },
   segmentItem: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
     paddingVertical: spacing.sm,
     borderRadius: radius.pill,
-    alignItems: 'center',
   },
   segmentItemActive: { backgroundColor: colors.accent },
   segmentText: { ...type.label, color: colors.textMuted },
-  segmentTextActive: { color: '#FFFFFF' },
+  segmentTextActive: { color: colors.textOnAccent },
 
   list: { padding: spacing.lg, gap: spacing.md, paddingBottom: spacing.xxl },
   footerSpinner: { marginVertical: spacing.lg },
@@ -401,16 +456,18 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
   empty: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xxl },
+  emptyAction: { marginTop: spacing.sm },
+
+  stateBadge: {
+    width: STATE_DISC,
+    height: STATE_DISC,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceRaised,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.xs,
+  },
 
   stateTitle: { ...type.heading, color: colors.text, textAlign: 'center' },
   stateBody: { ...type.body, color: colors.textMuted, textAlign: 'center', lineHeight: 21 },
-
-  secondaryButton: {
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceRaised,
-  },
-  secondaryButtonText: { ...type.label, color: colors.text },
 });

@@ -15,16 +15,22 @@
  * training late at night.
  */
 
+import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
 import { colors, radius, spacing, type } from '../theme';
+import { cardStyle } from './Button';
 
 const WEEKS = 5;
 const DAYS_PER_WEEK = 7;
 
 /** Monday-first, matching the grid's row order. */
 const WEEKDAY_LABELS: readonly string[] = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+
+/** Cell height, and therefore the height of each weekday label beside it. */
+const CELL_HEIGHT = 22;
+const FLAME_SIZE = 24;
 
 export interface StreakCalendarProps {
   /** ISO local dates (YYYY-MM-DD) with at least one completed session. */
@@ -50,9 +56,21 @@ export function StreakCalendar({
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>Son 5 hafta</Text>
-        <Text style={styles.streak}>
-          {currentStreak > 0 ? `${currentStreak} günlük seri` : 'Seri yok'}
-        </Text>
+
+        {/* The streak is what the card is really about, so it is stated as a figure
+            with the flame beside it rather than buried in a sentence. */}
+        {currentStreak > 0 ? (
+          <View style={styles.streakGroup}>
+            <Ionicons name="flame" size={FLAME_SIZE} color={colors.warning} />
+            <Text style={styles.streakCount}>{currentStreak}</Text>
+            <Text style={styles.streakUnit}>günlük seri</Text>
+          </View>
+        ) : (
+          <View style={styles.streakGroup}>
+            <Ionicons name="flame-outline" size={FLAME_SIZE} color={colors.textFaint} />
+            <Text style={styles.streakEmpty}>Seri yok</Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.gridRow}>
@@ -148,17 +166,14 @@ function describeCell(dateKey: string, isActive: boolean, isFuture: boolean): st
 }
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    gap: spacing.md,
-  },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  title: { ...type.heading, color: colors.text },
-  streak: { ...type.label, color: colors.success },
+  container: { ...cardStyle, gap: spacing.md },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  title: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase' },
+
+  streakGroup: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  streakCount: { ...type.display, color: colors.warningDark },
+  streakUnit: { ...type.caption, color: colors.textMuted },
+  streakEmpty: { ...type.label, color: colors.textFaint },
 
   gridRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
   dayLabels: { gap: spacing.xs },
@@ -166,23 +181,24 @@ const styles = StyleSheet.create({
     ...type.caption,
     color: colors.textFaint,
     // Matches the cell height so labels stay aligned with their rows.
-    height: 22,
-    lineHeight: 22,
+    height: CELL_HEIGHT,
+    lineHeight: CELL_HEIGHT,
     width: 26,
   },
   weeks: { flex: 1, flexDirection: 'row', gap: spacing.xs, justifyContent: 'space-between' },
   week: { gap: spacing.xs, flex: 1 },
   cell: {
-    height: 22,
+    height: CELL_HEIGHT,
     borderRadius: radius.sm,
-    backgroundColor: colors.surfaceRaised,
-    borderWidth: 1,
+    backgroundColor: colors.surfaceSunken,
+    borderWidth: 2,
     borderColor: colors.border,
   },
-  cellActive: { backgroundColor: colors.success, borderColor: colors.success },
-  cellToday: { borderColor: colors.accentBright, borderWidth: 2 },
-  // Invisible but still occupying its slot, so the grid keeps its shape.
-  cellFuture: { backgroundColor: 'transparent', borderColor: 'transparent' },
+  cellActive: { backgroundColor: colors.success, borderColor: colors.successDark },
+  cellToday: { borderColor: colors.accent },
+  // Invisible but still occupying its slot, so the grid keeps its shape. Hiding it
+  // with opacity rather than a transparent fill keeps the cell's colours in tokens.
+  cellFuture: { opacity: 0 },
 
   empty: { ...type.caption, color: colors.textFaint, lineHeight: 16 },
 });
