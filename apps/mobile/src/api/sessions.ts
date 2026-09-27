@@ -8,7 +8,7 @@
 
 import type { Category, Stat, Verification } from '@habitwar/domain';
 
-import { apiRequest } from './client.js';
+import { apiRequest } from './client';
 
 export interface Habit {
   readonly id: string;

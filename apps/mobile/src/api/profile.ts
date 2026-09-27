@@ -16,8 +16,8 @@
 
 import type { Category, CharacterClass, Stat, StatSheet } from '@habitwar/domain';
 
-import { apiRequest } from './client.js';
-import type { Habit } from './sessions.js';
+import { apiRequest } from './client';
+import type { Habit } from './sessions';
 
 /** Public-facing user record. */
 export interface ProfileUser {

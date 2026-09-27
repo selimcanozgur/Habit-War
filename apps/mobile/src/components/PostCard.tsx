@@ -249,8 +249,17 @@ function PostBody({ post }: { readonly post: Post }): React.JSX.Element {
             </View>
           )}
 
+          {/*
+            `topHabitName` is never populated — the API sends the day's categories, not
+            a headline habit — so the footnote reads from what actually arrives and
+            falls back to the habit name only if a future payload provides one.
+          */}
           {stats?.topHabitName ? (
             <Text style={styles.digestFootnote}>En çok: {stats.topHabitName}</Text>
+          ) : stats && stats.categories.length > 0 ? (
+            <Text style={styles.digestFootnote}>
+              {stats.categories.map(categoryLabel).join(' · ')}
+            </Text>
           ) : null}
 
           {post.content.length > 0 && <Text style={styles.content}>{post.content}</Text>}
@@ -353,6 +362,22 @@ function StatChip({
       <Text style={styles.statChipLabel}>{label}</Text>
     </View>
   );
+}
+
+/** Turkish labels for the API's category enum. */
+const CATEGORY_LABELS: Readonly<Record<string, string>> = {
+  FITNESS: 'Spor',
+  STUDY: 'Ders',
+  MINDFULNESS: 'Zihin',
+  CREATIVE: 'Yaratıcılık',
+  SOCIAL: 'Sosyal',
+  HEALTH: 'Sağlık',
+  SKILL: 'Beceri',
+};
+
+/** Falls through to the raw value so an enum added server-side still renders. */
+function categoryLabel(category: string): string {
+  return CATEGORY_LABELS[category] ?? category;
 }
 
 /** "bugün" / "dün" reads far better than a date on a digest headline. */

@@ -7,7 +7,7 @@
  * digest post should degrade to a plainer card, never crash the tab.
  */
 
-import { apiRequest } from './client.js';
+import { apiRequest } from './client';
 
 /**
  * Post kinds the spec defines (§5.1).
@@ -47,6 +47,8 @@ export interface DigestStats {
   readonly totalXp: number;
   /** Optional highlight, e.g. the habit with the most minutes that day. */
   readonly topHabitName?: string | undefined;
+  /** Categories the day touched. What the API actually sends alongside the totals. */
+  readonly categories: readonly string[];
 }
 
 /** Per-session detail on a `SESSION_COMPLETE` post: one session, not a day. */
@@ -123,14 +125,30 @@ function normaliseAuthor(raw: unknown): PostAuthor {
   };
 }
 
+/**
+ * Reads `Post.digestStats`, which the API writes as `{ sessions, minutes, xp,
+ * categories }`.
+ *
+ * The longer names are accepted as a fallback rather than replaced outright: they
+ * were what this client originally guessed, and `num()` quietly turns a missing key
+ * into 0 — so the mismatch did not crash anything, it just rendered every digest as
+ * "0 sessions, 0 minutes, +0 XP" against a database full of real numbers. Reading
+ * both means neither side can break the card by shipping first.
+ */
 function normaliseDigestStats(raw: unknown): DigestStats | undefined {
   if (raw === null || typeof raw !== 'object') return undefined;
   const source = raw as Record<string, unknown>;
+
+  const categories = Array.isArray(source['categories'])
+    ? source['categories'].filter((entry): entry is string => typeof entry === 'string')
+    : [];
+
   return {
-    sessionCount: num(source['sessionCount']),
-    totalMinutes: num(source['totalMinutes']),
-    totalXp: num(source['totalXp']),
+    sessionCount: optNum(source['sessions']) ?? num(source['sessionCount']),
+    totalMinutes: optNum(source['minutes']) ?? num(source['totalMinutes']),
+    totalXp: optNum(source['xp']) ?? num(source['totalXp']),
     topHabitName: optStr(source['topHabitName']),
+    categories,
   };
 }
 

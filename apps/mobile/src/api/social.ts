@@ -11,7 +11,7 @@
 
 import type { Category, CharacterClass } from '@habitwar/domain';
 
-import { apiRequest } from './client.js';
+import { apiRequest } from './client';
 
 // ---------------------------------------------------------------------------
 // Wire shapes — what the server is expected to send.
@@ -29,7 +29,16 @@ export interface WireUser {
   readonly classType?: CharacterClass | string | null;
 }
 
-export interface WireFriend {
+/**
+ * A friend row.
+ *
+ * `/v1/friends` sends the profile FLAT with `friendshipId` beside it, while
+ * `/v1/friends/requests` nests the profile under `user`. Both are accepted: reading
+ * only the nested form turned every friend into "Bilinmeyen kullanıcı · Seviye 1"
+ * while the requests list above it rendered correctly — the kind of half-working
+ * screen that reads as a data problem rather than a client one.
+ */
+export interface WireFriend extends WireUser {
   readonly friendshipId?: string;
   readonly user?: WireUser;
   readonly currentStreak?: number;
@@ -45,22 +54,43 @@ export interface WireFriendRequest {
 
 export type ChallengeStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'DECLINED' | 'CANCELLED';
 
+/**
+ * A duel.
+ *
+ * The API carries each side's score INSIDE the participant (`challenger.xp`), not
+ * as a sibling of it. Reading the sibling form scored every live duel 0-0, which
+ * renders as "Berabere" — a wrong answer that looks like a legitimate one.
+ */
+export interface WireChallengeParticipant extends WireUser {
+  readonly xp?: number;
+}
+
 export interface WireChallenge {
   readonly id?: string;
   readonly status?: ChallengeStatus | string;
   readonly category?: Category | string | null;
   readonly startsAt?: string;
   readonly endsAt?: string;
-  readonly challenger?: WireUser;
-  readonly opponent?: WireUser;
+  readonly challenger?: WireChallengeParticipant;
+  readonly opponent?: WireChallengeParticipant;
+  /** Sibling form, accepted as a fallback. */
   readonly challengerXp?: number;
   readonly opponentXp?: number;
 }
 
-export interface WireLeaderboardEntry {
+/**
+ * A leaderboard row.
+ *
+ * The API sends the profile fields FLAT alongside rank and weeklyXp, with the id
+ * under `userId`. The nested `user` form is kept as an accepted alternative.
+ */
+export interface WireLeaderboardEntry extends WireUser {
   readonly rank?: number;
   readonly user?: WireUser;
   readonly weeklyXp?: number;
+  /** Flat form of `user.id`. */
+  readonly userId?: string;
+  readonly isMe?: boolean;
 }
 
 export interface WireSeason {
@@ -294,7 +324,7 @@ export function normaliseFriends(friends: readonly WireFriend[] | undefined | nu
   if (!Array.isArray(friends)) return [];
   return friends.map((friend, index) => ({
     friendshipId: nonEmpty(friend?.friendshipId) ?? `friendship:${index}`,
-    user: normaliseUser(friend?.user, index),
+    user: normaliseUser(friend?.user ?? friend, index),
     currentStreak: Math.max(0, Math.round(finiteOr(friend?.currentStreak, 0))),
   }));
 }
@@ -327,12 +357,28 @@ export function normaliseChallenges(
       endsAt: nonEmpty(challenge?.endsAt),
       challenger: normaliseUser(challenge?.challenger, index),
       opponent: normaliseUser(challenge?.opponent, index + 1),
-      challengerXp: Math.max(0, Math.round(finiteOr(challenge?.challengerXp, 0))),
-      opponentXp: Math.max(0, Math.round(finiteOr(challenge?.opponentXp, 0))),
+      // Nested first — that is what the API actually sends.
+      challengerXp: Math.max(
+        0,
+        Math.round(finiteOr(challenge?.challenger?.xp ?? challenge?.challengerXp, 0)),
+      ),
+      opponentXp: Math.max(
+        0,
+        Math.round(finiteOr(challenge?.opponent?.xp ?? challenge?.opponentXp, 0)),
+      ),
     };
   });
 }
 
+/**
+ * Reads the friends leaderboard.
+ *
+ * The API returns each row FLAT — `{ rank, userId, username, displayName, level,
+ * weeklyXp }` — not with the profile nested under `user`. Reading the nested shape
+ * degraded every row to the placeholder profile, so the board rendered three
+ * identical "Bilinmeyen kullanıcı · Seviye 1" entries against real accounts.
+ * Both shapes are accepted so neither side can break the board by shipping first.
+ */
 export function normaliseLeaderboard(
   entries: readonly WireLeaderboardEntry[] | undefined | null,
 ): LeaderboardEntry[] {
@@ -340,7 +386,8 @@ export function normaliseLeaderboard(
   return entries.map((entry, index) => ({
     // A server that omits `rank` still produces a sensible ladder from list order.
     rank: Math.max(1, Math.round(finiteOr(entry?.rank, index + 1))),
-    user: normaliseUser(entry?.user, index),
+    // Flat rows keep the id under `userId`; normaliseUser reads `id`.
+    user: normaliseUser(entry?.user ?? { ...entry, id: entry?.user?.id ?? entry?.userId }, index),
     weeklyXp: Math.max(0, Math.round(finiteOr(entry?.weeklyXp, 0))),
   }));
 }

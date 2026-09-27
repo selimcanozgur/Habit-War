@@ -10,6 +10,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import type { Env } from './env.js';
 import authPlugin, { type AuthPluginOptions } from './plugins/auth.js';
 import errorHandlerPlugin from './plugins/error-handler.js';
+import corsPlugin from './plugins/cors.js';
 import prismaPlugin from './plugins/prisma.js';
 import rateLimitPlugin from './plugins/rate-limit.js';
 import securityHeadersPlugin from './plugins/security-headers.js';
@@ -47,6 +48,7 @@ export async function buildServer(
 
   await app.register(errorHandlerPlugin);
   await app.register(securityHeadersPlugin, { env });
+  await app.register(corsPlugin, { env });
   // Registered before auth so an unauthenticated flood is rejected without a
   // database read; the limiter falls back to IP when there is no user yet.
   await app.register(rateLimitPlugin, { env });

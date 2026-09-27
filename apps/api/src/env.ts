@@ -33,6 +33,12 @@ const schema = z
     CLERK_SECRET_KEY: z.string().min(1).optional(),
 
     /**
+     * Comma-separated origins allowed to call this API from a browser.
+     * Empty in development, where any localhost/LAN origin is accepted instead.
+     */
+    CORS_ORIGINS: z.string().optional(),
+
+    /**
      * Signing secret for the Clerk webhook (`whsec_…`).
      * Optional: without it the webhook route is not registered at all, rather than
      * registered in a state where it would accept unsigned payloads.
