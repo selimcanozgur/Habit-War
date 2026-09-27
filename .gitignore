@@ -16,3 +16,5 @@ apps/mobile/.expo/
 
 # Smoke-run artefacts
 tools/smoke/*.png
+
+# Generated from assets/top-menu-images by tools/icons/optimise-heroes.mjs

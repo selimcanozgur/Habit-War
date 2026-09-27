@@ -20,4 +20,11 @@ config.resolver.nodeModulesPaths = [
 // of react and fail with an invalid-hook error that points nowhere useful.
 config.resolver.disableHierarchicalLookup = true;
 
+// Import .svg files as React components. The icon set is authored as real SVG files
+// so it can be opened in any editor, and this is what lets the app consume them
+// without a parallel hand-written copy of every glyph.
+config.transformer.babelTransformerPath = require.resolve('react-native-svg-transformer');
+config.resolver.assetExts = config.resolver.assetExts.filter((ext) => ext !== 'svg');
+config.resolver.sourceExts = [...config.resolver.sourceExts, 'svg'];
+
 module.exports = config;

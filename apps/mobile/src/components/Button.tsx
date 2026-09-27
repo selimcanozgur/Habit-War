@@ -18,7 +18,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-na
 
 import { colors, depth, radius, spacing, type } from '../theme';
 
-export type ButtonTone = 'primary' | 'success' | 'danger' | 'neutral';
+export type ButtonTone = 'primary' | 'success' | 'xp' | 'danger' | 'neutral';
 export type ButtonSize = 'large' | 'small';
 
 export interface ButtonProps {
@@ -37,8 +37,10 @@ export interface ButtonProps {
 const TONES: Readonly<Record<ButtonTone, { face: string; edge: string; label: string }>> = {
   primary: { face: colors.accent, edge: colors.accentDark, label: colors.textOnAccent },
   success: { face: colors.success, edge: colors.successDark, label: colors.textOnAccent },
+  // Anything that spends or advances progression rather than merely navigating.
+  xp: { face: colors.xp, edge: colors.xpDark, label: colors.textOnAccent },
   danger: { face: colors.danger, edge: colors.dangerDark, label: colors.textOnAccent },
-  // The quiet one: a white face on a grey edge, for anything that is not the
+  // The quiet one: a parchment face on a warm edge, for anything that is not the
   // action the screen is asking for.
   neutral: { face: colors.surface, edge: colors.borderStrong, label: colors.text },
 };

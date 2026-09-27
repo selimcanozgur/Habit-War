@@ -1,0 +1,47 @@
+| Renk             | HEX       | Kullanım                    |
+| ---------------- | --------- | --------------------------- |
+| 🟫 Koyu taş      | `#1E1E1C` | Alt menü, koyu paneller     |
+| 🟦 Gece lacivert | `#1D2A35` | RPG panelleri / arka plan   |
+| 🟫 Koyu kahve    | `#413425` | Taş/ahşap çerçeveler        |
+| 🟨 Parchment     | `#F8E3C2` | Ana kartlar                 |
+| 🟤 Eski parşömen | `#EBCDA1` | Kart kenarları / secondary  |
+| 🔵 Ana mavi      | `#2072BB` | İkonlar / vurgu             |
+| 🔵 Açık mavi     | `#3F95D2` | İkincil mavi                |
+| 🟪 Mor           | `#9B5EF9` | XP / progress / aktif durum |
+| 🟠 Turuncu       | `#E37537` | Ateş, güç, ödül             |
+| 🟡 Altın         | `#D2AE78` | Yıldız / önemli RPG öğeleri |
+| 🟢 Yeşil         | `#30AF29` | Tamamlandı / başarı         |
+| ⚪ Kırık beyaz    | `#F2F5F7` | Metin / ikon                |
+
+
+Asıl 5 ana rengimiz
+Bence Stitch'e bütün bu renkleri vermek yerine şu 5 rengi temel tasarım sistemi olarak vermek daha doğru:
+
+PRIMARY DARK
+#1E1E1C
+
+SECONDARY DARK
+#1D2A35
+
+PARCHMENT
+#F8E3C2
+
+PARCHMENT SHADOW
+#EBCDA1
+
+PRIMARY ACCENT
+#2072BB
+
+Sonra 
+
+XP / MAGIC
+#9B5EF9
+
+SUCCESS
+#30AF29
+
+GOLD / REWARD
+#D2AE78
+
+ENERGY / FIRE
+#E37537
