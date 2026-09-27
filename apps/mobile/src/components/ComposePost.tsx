@@ -10,17 +10,18 @@
  * because a post rejected after typing 600 characters is a worse experience than one
  * that simply stops accepting them.
  *
- * The field itself is drawn as a recessed well inside the card: on a white page a
- * white input with a hairline border does not read as something you can type into.
+ * The field itself is drawn as a recessed well inside the card: parchment on
+ * parchment with a hairline border does not read as something you can type into, so
+ * the well takes the darker paper tone and a real edge.
  */
 
-import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated';
 
 import { colors, radius, spacing, type } from '../theme';
 import { Button, cardStyle, ChipButton } from './Button';
+import { Icon } from './Icon';
 
 export const MAX_POST_LENGTH = 500;
 /** Below this many characters left, the counter turns into a warning. */
@@ -67,9 +68,7 @@ export function ComposePost({
   return (
     <Animated.View style={styles.container} layout={LinearTransition.duration(180)}>
       <View style={[styles.well, expanded && styles.wellExpanded]}>
-        {!expanded && (
-          <Ionicons name="create-outline" size={ICON_SIZE} color={colors.textFaint} />
-        )}
+        {!expanded && <Icon name="edit" size={ICON_SIZE} color={colors.textFaint} />}
         <TextInput
           style={[styles.input, expanded && styles.inputExpanded]}
           value={text}
@@ -158,7 +157,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontVariant: ['tabular-nums'],
   },
-  counterWarn: { color: colors.warningDark },
+  counterWarn: { color: colors.fireDark },
 
   submit: { minWidth: SUBMIT_MIN_WIDTH },
 

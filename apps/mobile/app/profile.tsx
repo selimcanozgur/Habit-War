@@ -2,8 +2,9 @@
  * The profile tab (spec §9, tab 5).
  *
  * This is the "who have I become" screen: the character card is the payoff for every
- * session the timer screen recorded, so it leads, and everything below it is
- * evidence — stats, activity, badges, streak.
+ * session the timer screen recorded, so it leads — laid directly over the hero
+ * illustration, so the character and their world are one object — and everything
+ * below it is evidence: badges of standing, stats, activity, streak.
  *
  * The numbers are the content here, so they are set in display type and the words
  * that label them are demoted to overlines and captions. On a screen made mostly of
@@ -18,7 +19,6 @@
  * owned elsewhere and wires the tabs in one pass later.
  */
 
-import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { useMemo, useState } from 'react';
@@ -47,14 +47,19 @@ import {
 } from '../src/api/profile';
 import { AchievementShelf } from '../src/components/AchievementShelf';
 import { Button, cardStyle } from '../src/components/Button';
+import { Icon, type IconName } from '../src/components/Icon';
+import { ScreenHero } from '../src/components/ScreenHero';
 import { StatRadar } from '../src/components/StatRadar';
 import { StreakCalendar } from '../src/components/StreakCalendar';
 import { XpBar } from '../src/components/XpBar';
 import { colors, radius, spacing, type } from '../src/theme';
 
-type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+import type { Stat } from '@habitwar/domain';
 
 const ICON_SIZE = 20;
+
+/** Matches ALL_STATS in the domain package, so the total is stable everywhere. */
+const STAT_ORDER: readonly Stat[] = ['STR', 'END', 'INT', 'WIS', 'CHA', 'DEX'];
 
 const PERIODS: readonly { readonly value: StatsPeriod; readonly label: string }[] = [
   { value: 'week', label: 'Hafta' },
@@ -67,36 +72,43 @@ const SETTINGS_ENTRIES: readonly {
   readonly key: string;
   readonly label: string;
   readonly hint: string;
-  readonly icon: IoniconName;
+  readonly icon: IconName;
   readonly destructive?: boolean;
 }[] = [
-  { key: 'edit', label: 'Profili düzenle', hint: 'Ad, biyografi ve avatar', icon: 'create-outline' },
+  { key: 'edit', label: 'Profili düzenle', hint: 'Ad, biyografi ve avatar', icon: 'edit' },
   {
     key: 'blocked',
     label: 'Engellenen kişiler',
     hint: 'Engellediğin hesapları yönet',
-    icon: 'ban-outline',
+    icon: 'lock',
   },
   {
     key: 'export',
     label: 'Verilerimi dışa aktar',
     hint: 'Tüm verilerinin bir kopyasını indir',
-    icon: 'download-outline',
+    icon: 'shield-check',
   },
   {
     key: 'delete',
     label: 'Hesabımı sil',
     hint: 'Hesabını ve tüm verilerini kalıcı olarak kaldır',
-    icon: 'trash-outline',
+    icon: 'logout',
     destructive: true,
   },
 ];
 
 /** Each activity metric gets the icon of the thing it counts. */
-const METRIC_ICONS: Readonly<Record<'sessions' | 'minutes' | 'xp', IoniconName>> = {
-  sessions: 'checkmark-done',
-  minutes: 'time',
-  xp: 'flash',
+const METRIC_ICONS: Readonly<Record<'sessions' | 'minutes' | 'xp', IconName>> = {
+  sessions: 'check-circle-filled',
+  minutes: 'clock',
+  xp: 'xp-bolt-filled',
+};
+
+/** The colour each activity metric is counted in, matching its badge above. */
+const METRIC_COLORS: Readonly<Record<'sessions' | 'minutes' | 'xp', string>> = {
+  sessions: colors.success,
+  minutes: colors.accent,
+  xp: colors.xp,
 };
 
 export default function ProfileScreen(): React.JSX.Element {
@@ -151,7 +163,7 @@ export default function ProfileScreen(): React.JSX.Element {
   if (profileQuery.isError || !user || !progress) {
     return (
       <SafeAreaView style={styles.centered}>
-        <Ionicons name="cloud-offline-outline" size={48} color={colors.textFaint} />
+        <Icon name="cloud-off" size={48} color={colors.textOnDarkMuted} />
         <Text style={styles.errorTitle}>Profil açılamadı</Text>
         <Text style={styles.errorBody}>{describeError(profileQuery.error)}</Text>
         <Button
@@ -166,207 +178,244 @@ export default function ProfileScreen(): React.JSX.Element {
   }
 
   const displayName = user.displayName?.trim() || user.username;
+  const statTotal = STAT_ORDER.reduce((sum, stat) => sum + stats[stat], 0);
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
+    <View style={styles.screen}>
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        {/* -------------------------------------------------- character card */}
-        <Animated.View entering={FadeInDown.duration(320)} style={styles.card}>
-          <View style={styles.identityRow}>
-            <Avatar url={user.avatarUrl} name={displayName} />
+        {/* ------------------------------------------ character card, on the hero */}
+        <ScreenHero image="profile" title={displayName} subtitle={`@${user.username}`} grows>
+          <View style={styles.heroChips}>
+            <View style={styles.classChip}>
+              <Icon name="star-filled" size={ICON_SIZE - 6} color={colors.gold} />
+              <Text style={styles.classChipText}>{describeClass(user.classType)}</Text>
+            </View>
+            {user.prestige > 0 && (
+              <View style={styles.prestigeChip}>
+                <Icon name="trophy" size={ICON_SIZE - 6} color={colors.textOnAccent} />
+                <Text style={styles.prestigeChipText}>{user.prestige}. yükseliş</Text>
+              </View>
+            )}
+          </View>
 
-            <View style={styles.identityText}>
-              <Text style={styles.displayName} numberOfLines={1}>
-                {displayName}
-              </Text>
-              <Text style={styles.username} numberOfLines={1}>
-                @{user.username}
-              </Text>
+          <Text style={styles.heroLevel}>Seviye {progress.level}</Text>
 
-              <View style={styles.chips}>
-                <View style={styles.chip}>
-                  <Ionicons name="shield-half" size={ICON_SIZE - 4} color={colors.textMuted} />
-                  <Text style={styles.chipText}>{describeClass(user.classType)}</Text>
-                </View>
-                {user.prestige > 0 && (
-                  <View style={[styles.chip, styles.chipAccent]}>
-                    <Ionicons name="star" size={ICON_SIZE - 4} color={colors.accentDark} />
-                    <Text style={[styles.chipText, styles.chipTextAccent]}>
-                      {user.prestige}. yükseliş
-                    </Text>
-                  </View>
-                )}
+          {/*
+            Reuses the existing XpBar rather than duplicating the fill animation, on
+            a parchment strip: the bar states its own counter in ink, which needs a
+            light ground to stay legible over the illustration. `compact` because the
+            level is already stated above it.
+          */}
+          <View style={styles.heroBar}>
+            <XpBar
+              ratio={progress.ratio}
+              level={progress.level}
+              xpIntoLevel={progress.xpIntoLevel}
+              xpForNextLevel={progress.isMaxLevel ? 0 : progress.xpForNextLevel}
+              compact
+            />
+          </View>
+        </ScreenHero>
+
+        {/* The avatar straddles the hero's lower edge, which is what ties the card
+            to the illustration instead of stacking two rectangles. */}
+        <View style={styles.avatarPerch} pointerEvents="none">
+          <Avatar url={user.avatarUrl} name={displayName} />
+        </View>
+
+        <View style={styles.body}>
+          {user.bio ? (
+            <View style={styles.card}>
+              <Text style={styles.bio}>{user.bio}</Text>
+            </View>
+          ) : null}
+
+          {/* ------------------------------------------------- standing at a glance */}
+          <Animated.View entering={FadeInDown.duration(320)} style={styles.badgeRow}>
+            <StandingBadge
+              icon="flame-filled"
+              tint={colors.fire}
+              value={`${summary?.currentStreak ?? 0}`}
+              label="Gün Serisi"
+            />
+            <StandingBadge
+              icon="xp-bolt-filled"
+              tint={colors.xp}
+              value={`${user.cycleXp}`}
+              label="XP"
+            />
+            <StandingBadge
+              icon="star-filled"
+              tint={colors.gold}
+              value={`${statTotal}`}
+              label="Puan"
+            />
+          </Animated.View>
+
+          {/* ------------------------------------------------------ stat sheet */}
+          <StatRadar stats={stats} />
+
+          {/* --------------------------------------------------- activity summary */}
+          <View style={styles.card}>
+            <View style={styles.headerRow}>
+              <Text style={styles.sectionTitle}>Etkinlik</Text>
+
+              {/*
+                Left as hand-built Pressables rather than ChipButton: a segmented
+                control has to report `accessibilityState.selected` so a screen reader
+                says which period is active, and the chip component takes no such prop.
+              */}
+              <View style={styles.segmented}>
+                {PERIODS.map((option) => {
+                  const selected = option.value === period;
+                  return (
+                    <Pressable
+                      key={option.value}
+                      style={[styles.segment, selected && styles.segmentSelected]}
+                      onPress={() => {
+                        void Haptics.selectionAsync();
+                        setPeriod(option.value);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${option.label} istatistiklerini göster`}
+                      accessibilityState={{ selected }}
+                    >
+                      <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
             </View>
+
+            {statsQuery.isPending ? (
+              <ActivityIndicator color={colors.accent} style={styles.inlineSpinner} />
+            ) : statsQuery.isError ? (
+              <View style={styles.inlineError}>
+                <Text style={styles.mutedBody}>{describeError(statsQuery.error)}</Text>
+                <Button
+                  label="Tekrar dene"
+                  tone="neutral"
+                  size="small"
+                  block={false}
+                  onPress={() => void statsQuery.refetch()}
+                  accessibilityLabel="Etkinlik özetini yeniden yükle"
+                />
+              </View>
+            ) : summary && (summary.sessionCount ?? 0) > 0 ? (
+              <View style={styles.metrics}>
+                <Metric
+                  icon={METRIC_ICONS.sessions}
+                  tint={METRIC_COLORS.sessions}
+                  label="Seans"
+                  value={`${summary.sessionCount ?? 0}`}
+                />
+                <Metric
+                  icon={METRIC_ICONS.minutes}
+                  tint={METRIC_COLORS.minutes}
+                  label="Süre"
+                  value={formatMinutes(summary.totalMinutes ?? 0)}
+                />
+                <Metric
+                  icon={METRIC_ICONS.xp}
+                  tint={METRIC_COLORS.xp}
+                  label="XP"
+                  value={`${summary.totalXp ?? 0}`}
+                />
+              </View>
+            ) : (
+              <Text style={styles.empty}>
+                {period === 'week'
+                  ? 'Bu hafta henüz seans yok. Zamanlayıcı sekmesinden kısa bir seans başlat.'
+                  : 'Bu dönemde kayıtlı seans yok.'}
+              </Text>
+            )}
           </View>
 
-          {user.bio ? <Text style={styles.bio}>{user.bio}</Text> : null}
-
-          {/* Reuses the existing XpBar rather than duplicating the fill animation. */}
-          <XpBar
-            ratio={progress.ratio}
-            level={progress.level}
-            xpIntoLevel={progress.xpIntoLevel}
-            xpForNextLevel={progress.isMaxLevel ? 0 : progress.xpForNextLevel}
+          {/* ------------------------------------------------------ streak grid */}
+          <StreakCalendar
+            activeDays={activeDays}
+            currentStreak={summary?.currentStreak ?? 0}
           />
-        </Animated.View>
 
-        {/* -------------------------------------------------------- stat sheet */}
-        <StatRadar stats={stats} />
-
-        {/* --------------------------------------------------- activity summary */}
-        <View style={styles.card}>
-          <View style={styles.headerRow}>
-            <Text style={styles.sectionTitle}>Etkinlik</Text>
-
-            {/*
-              Left as hand-built Pressables rather than ChipButton: a segmented
-              control has to report `accessibilityState.selected` so a screen reader
-              says which period is active, and the chip component takes no such prop.
-            */}
-            <View style={styles.segmented}>
-              {PERIODS.map((option) => {
-                const selected = option.value === period;
-                return (
-                  <Pressable
-                    key={option.value}
-                    style={[styles.segment, selected && styles.segmentSelected]}
-                    onPress={() => {
-                      void Haptics.selectionAsync();
-                      setPeriod(option.value);
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${option.label} istatistiklerini göster`}
-                    accessibilityState={{ selected }}
-                  >
-                    <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
-                      {option.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+          {/* --------------------------------------------------------- badges */}
+          {achievementsQuery.isPending ? (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Rozetler</Text>
+              <ActivityIndicator color={colors.accent} style={styles.inlineSpinner} />
             </View>
-          </View>
-
-          {statsQuery.isPending ? (
-            <ActivityIndicator color={colors.accent} style={styles.inlineSpinner} />
-          ) : statsQuery.isError ? (
-            <View style={styles.inlineError}>
-              <Text style={styles.mutedBody}>{describeError(statsQuery.error)}</Text>
+          ) : achievementsQuery.isError ? (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Rozetler</Text>
+              <Text style={styles.mutedBody}>{describeError(achievementsQuery.error)}</Text>
               <Button
                 label="Tekrar dene"
                 tone="neutral"
                 size="small"
                 block={false}
-                onPress={() => void statsQuery.refetch()}
-                accessibilityLabel="Etkinlik özetini yeniden yükle"
+                onPress={() => void achievementsQuery.refetch()}
+                accessibilityLabel="Rozetleri yeniden yükle"
               />
-            </View>
-          ) : summary && (summary.sessionCount ?? 0) > 0 ? (
-            <View style={styles.metrics}>
-              <Metric
-                icon={METRIC_ICONS.sessions}
-                label="Seans"
-                value={`${summary.sessionCount ?? 0}`}
-              />
-              <Metric
-                icon={METRIC_ICONS.minutes}
-                label="Süre"
-                value={formatMinutes(summary.totalMinutes ?? 0)}
-              />
-              <Metric icon={METRIC_ICONS.xp} label="XP" value={`${summary.totalXp ?? 0}`} />
             </View>
           ) : (
-            <Text style={styles.empty}>
-              {period === 'week'
-                ? 'Bu hafta henüz seans yok. Zamanlayıcı sekmesinden kısa bir seans başlat.'
-                : 'Bu dönemde kayıtlı seans yok.'}
-            </Text>
+            <AchievementShelf achievements={achievements} />
           )}
-        </View>
 
-        {/* ------------------------------------------------------ streak grid */}
-        <StreakCalendar
-          activeDays={activeDays}
-          currentStreak={summary?.currentStreak ?? 0}
-        />
-
-        {/* --------------------------------------------------------- badges */}
-        {achievementsQuery.isPending ? (
+          {/* ------------------------------------------------------- settings */}
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Rozetler</Text>
-            <ActivityIndicator color={colors.accent} style={styles.inlineSpinner} />
-          </View>
-        ) : achievementsQuery.isError ? (
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Rozetler</Text>
-            <Text style={styles.mutedBody}>{describeError(achievementsQuery.error)}</Text>
-            <Button
-              label="Tekrar dene"
-              tone="neutral"
-              size="small"
-              block={false}
-              onPress={() => void achievementsQuery.refetch()}
-              accessibilityLabel="Rozetleri yeniden yükle"
-            />
-          </View>
-        ) : (
-          <AchievementShelf achievements={achievements} />
-        )}
+            <Text style={styles.sectionTitle}>Ayarlar</Text>
 
-        {/* ------------------------------------------------------- settings */}
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Ayarlar</Text>
+            <View style={styles.settingsList}>
+              {SETTINGS_ENTRIES.map((entry) => (
+                <Pressable
+                  key={entry.key}
+                  style={({ pressed }) => [styles.settingRow, pressed && styles.settingRowPressed]}
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    setPendingSetting(entry.key);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${entry.label}. ${entry.hint}`}
+                >
+                  <View style={[styles.settingIcon, entry.destructive && styles.settingIconDanger]}>
+                    <Icon
+                      name={entry.icon}
+                      size={ICON_SIZE}
+                      color={entry.destructive ? colors.danger : colors.textMuted}
+                    />
+                  </View>
+                  <View style={styles.settingText}>
+                    <Text style={[styles.settingLabel, entry.destructive && styles.destructive]}>
+                      {entry.label}
+                    </Text>
+                    <Text style={styles.settingHint}>{entry.hint}</Text>
+                  </View>
+                    <Icon name="chevron-right" size={ICON_SIZE} color={colors.textFaint} />
+                </Pressable>
+              ))}
+            </View>
 
-          <View style={styles.settingsList}>
-            {SETTINGS_ENTRIES.map((entry) => (
-              <Pressable
-                key={entry.key}
-                style={({ pressed }) => [styles.settingRow, pressed && styles.settingRowPressed]}
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  setPendingSetting(entry.key);
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={`${entry.label}. ${entry.hint}`}
-              >
-                <View style={[styles.settingIcon, entry.destructive && styles.settingIconDanger]}>
-                  <Ionicons
-                    name={entry.icon}
-                    size={ICON_SIZE}
-                    color={entry.destructive ? colors.danger : colors.textMuted}
-                  />
-                </View>
-                <View style={styles.settingText}>
-                  <Text style={[styles.settingLabel, entry.destructive && styles.destructive]}>
-                    {entry.label}
-                  </Text>
-                  <Text style={styles.settingHint}>{entry.hint}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={ICON_SIZE} color={colors.textFaint} />
-              </Pressable>
-            ))}
+            {/*
+              Placeholder screens are not built yet, but the entries must be visible and
+              tappable — data export and account deletion are store requirements. Saying
+              so plainly beats a dead tap that looks like a bug.
+            */}
+            {pendingSetting !== null && (
+              <Animated.View entering={FadeInDown.duration(200)} style={styles.placeholderNotice}>
+                  <Icon name="alert" size={ICON_SIZE} color={colors.fireDark} />
+                <Text style={styles.placeholderNoticeText}>
+                  Bu ekran henüz hazır değil. Yakında burada açılacak.
+                </Text>
+              </Animated.View>
+            )}
           </View>
-
-          {/*
-            Placeholder screens are not built yet, but the entries must be visible and
-            tappable — data export and account deletion are store requirements. Saying
-            so plainly beats a dead tap that looks like a bug.
-          */}
-          {pendingSetting !== null && (
-            <Animated.View entering={FadeInDown.duration(200)} style={styles.placeholderNotice}>
-              <Ionicons name="construct-outline" size={ICON_SIZE} color={colors.warningDark} />
-              <Text style={styles.placeholderNoticeText}>
-                Bu ekran henüz hazır değil. Yakında burada açılacak.
-              </Text>
-            </Animated.View>
-          )}
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -393,18 +442,56 @@ function Avatar({ url, name }: { url: string | null; name: string }): React.JSX.
   );
 }
 
+/**
+ * One of the three dark badges under the hero.
+ *
+ * Stone rather than parchment, because these are what the user *is* rather than
+ * what they recorded — the same distinction the season banner makes on the battle
+ * screen. The figure leads and the word beneath it is demoted to an overline.
+ */
+function StandingBadge({
+  icon,
+  tint,
+  value,
+  label,
+}: {
+  readonly icon: IconName;
+  readonly tint: string;
+  readonly value: string;
+  readonly label: string;
+}): React.JSX.Element {
+  return (
+    <View
+      style={styles.standingBadge}
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={`${label}: ${value}`}
+    >
+      <Icon name={icon} size={ICON_SIZE} color={tint} />
+      <Text style={styles.standingValue} numberOfLines={1}>
+        {value}
+      </Text>
+      <Text style={styles.standingLabel} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
 function Metric({
   icon,
+  tint,
   label,
   value,
 }: {
-  icon: IoniconName;
+  icon: IconName;
+  tint: string;
   label: string;
   value: string;
 }): React.JSX.Element {
   return (
     <View style={styles.metric} accessible accessibilityRole="text" accessibilityLabel={`${label}: ${value}`}>
-      <Ionicons name={icon} size={ICON_SIZE} color={colors.accent} />
+      <Icon name={icon} size={ICON_SIZE} color={tint} />
       {/* Two lines allowed: at display size a long duration ("12 sa 30 dk") wraps to
           "12 sa / 30 dk", which still reads as one figure. Clipping it would not. */}
       <Text style={styles.metricValue} numberOfLines={2}>
@@ -433,10 +520,15 @@ function describeError(error: unknown): string {
 const AVATAR_SIZE = 72;
 /** Matches the 2px outline this language uses everywhere else. */
 const AVATAR_BORDER = 2;
+/** How far the avatar hangs below the hero's lower edge. */
+const AVATAR_OVERLAP = AVATAR_SIZE / 2;
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.md, gap: spacing.md, paddingBottom: spacing.xxl },
+  // The hero runs edge to edge, so only the content below it is inset. The top pad
+  // clears the avatar hanging off the hero.
+  content: { paddingBottom: spacing.xxl },
+  body: { padding: spacing.md, paddingTop: AVATAR_OVERLAP + spacing.sm, gap: spacing.md },
   centered: {
     flex: 1,
     backgroundColor: colors.bg,
@@ -448,39 +540,80 @@ const styles = StyleSheet.create({
 
   card: { ...cardStyle, gap: spacing.md },
 
-  identityRow: { flexDirection: 'row', gap: spacing.md, alignItems: 'center' },
-  avatar: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surfaceSunken,
-    // The avatar is the one photograph on the screen, so it gets the same outline
-    // every other object here has instead of floating on the white.
-    borderWidth: AVATAR_BORDER,
-    borderColor: colors.accent,
-  },
-  avatarFallback: { alignItems: 'center', justifyContent: 'center' },
-  avatarInitial: { ...type.title, color: colors.accent },
-  identityText: { flex: 1, gap: 2 },
-  displayName: { ...type.title, color: colors.text },
-  username: { ...type.label, color: colors.textMuted },
-  bio: { ...type.body, color: colors.textMuted, lineHeight: 21 },
-
-  chips: { flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginTop: spacing.xs },
-  chip: {
+  // ------------------------------------------------------------ hero identity
+  heroChips: { flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' },
+  classChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
     paddingHorizontal: spacing.sm,
     paddingVertical: 3,
     borderRadius: radius.pill,
-    borderWidth: 2,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceRaised,
+    backgroundColor: colors.frame,
   },
-  chipAccent: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
-  chipText: { ...type.caption, color: colors.textMuted },
-  chipTextAccent: { color: colors.accentDark },
+  classChipText: { ...type.caption, color: colors.textOnDark },
+  prestigeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    backgroundColor: colors.xp,
+  },
+  prestigeChipText: { ...type.caption, color: colors.textOnAccent },
+
+  heroLevel: { ...type.heading, color: colors.textOnDark },
+  heroBar: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    borderColor: colors.borderStrong,
+    padding: spacing.sm,
+  },
+
+  // Pulled up by its own overlap so it straddles the hero's edge. `pointerEvents` is
+  // off on the wrapper, so this never steals a touch from the content beneath.
+  avatarPerch: {
+    alignItems: 'center',
+    marginTop: -AVATAR_OVERLAP,
+    // Above the body card that follows it in flow order.
+    zIndex: 1,
+  },
+  avatar: {
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceRaised,
+    // Gold, because on the illustration a warm grey ring would read as a smudge.
+    borderWidth: AVATAR_BORDER + 1,
+    borderColor: colors.gold,
+  },
+  avatarFallback: { alignItems: 'center', justifyContent: 'center' },
+  avatarInitial: { ...type.title, color: colors.textMuted },
+
+  bio: { ...type.body, color: colors.textMuted, lineHeight: 21 },
+
+  // -------------------------------------------------------- standing badges
+  badgeRow: { flexDirection: 'row', gap: spacing.sm },
+  standingBadge: {
+    flex: 1,
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radius.md,
+    backgroundColor: colors.stone,
+    borderWidth: 2,
+    borderColor: colors.frame,
+  },
+  standingValue: { ...type.title, color: colors.textOnDark, fontVariant: ['tabular-nums'] },
+  standingLabel: {
+    ...type.overline,
+    color: colors.textOnDarkMuted,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
 
   headerRow: {
     flexDirection: 'row',
@@ -488,7 +621,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
-  sectionTitle: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase' },
+  sectionTitle: { ...type.heading, color: colors.text },
 
   segmented: {
     flexDirection: 'row',
@@ -547,15 +680,15 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.sm,
     borderRadius: radius.md,
-    backgroundColor: colors.warningSoft,
+    backgroundColor: colors.fireSoft,
   },
-  placeholderNoticeText: { ...type.caption, color: colors.warningDark, flex: 1 },
+  placeholderNoticeText: { ...type.caption, color: colors.fireDark, flex: 1 },
 
   inlineSpinner: { alignSelf: 'center', marginVertical: spacing.md },
   inlineError: { gap: spacing.sm, alignItems: 'flex-start' },
   empty: { ...type.body, color: colors.textFaint, lineHeight: 21 },
-  mutedBody: { ...type.body, color: colors.textMuted, textAlign: 'center' },
+  mutedBody: { ...type.body, color: colors.textOnDarkMuted, textAlign: 'center' },
 
-  errorTitle: { ...type.heading, color: colors.text },
-  errorBody: { ...type.body, color: colors.textMuted, textAlign: 'center' },
+  errorTitle: { ...type.heading, color: colors.textOnDark },
+  errorBody: { ...type.body, color: colors.textOnDarkMuted, textAlign: 'center' },
 });

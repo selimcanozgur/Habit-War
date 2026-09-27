@@ -11,11 +11,15 @@
  * The bar animates for the same reason the XP bar does, and carries the same
  * highlight along the top of its fill, so the two read as one language.
  *
+ * The board is stone rather than parchment. A duel is the one thing on this screen
+ * that is not a record of what the user did but a contest still running, and putting
+ * it on the dark ground separates it from the parchment cards around it — the same
+ * move the season banner makes.
+ *
  * A pending duel has no scores yet, so it renders as an invitation with
  * accept/decline instead of a scoreboard.
  */
 
-import { Ionicons } from '@expo/vector-icons';
 import { useEffect } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, {
@@ -32,7 +36,8 @@ import {
   type Challenge,
 } from '../api/social';
 import { colors, radius, spacing, type } from '../theme';
-import { Button, cardStyle } from './Button';
+import { Button } from './Button';
+import { Icon } from './Icon';
 
 /** Matches the XP bar's fill duration so the two read as one visual language. */
 const FILL_MS = 900;
@@ -96,25 +101,32 @@ export function DuelCard({
   const tied = myXp === theirXp;
 
   // Green means "ahead" throughout the app, so the bar turns green the moment the
-  // fill passes the marker and the verdict pill agrees with it.
-  const leadColor = leading ? colors.success : colors.accent;
+  // fill passes the marker and the verdict pill agrees with it. Behind, it stays the
+  // XP violet the rest of the app uses for progress — being behind is not an error.
+  const leadColor = leading ? colors.success : colors.xp;
 
   return (
     <View style={styles.card}>
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Ionicons
-            name={isFinished ? 'trophy' : isPending ? 'mail-unread-outline' : 'flame'}
+          <Icon
+            name={isFinished ? 'trophy' : isPending ? 'bell' : 'flame-filled'}
             size={ICON_SIZE}
-            color={isFinished ? colors.textFaint : isPending ? colors.info : colors.warning}
+            color={
+              isFinished
+                ? colors.textOnDarkMuted
+                : isPending
+                  ? colors.accentBright
+                  : colors.fire
+            }
           />
           <Text style={styles.category}>{describeCategory(challenge.category)}</Text>
         </View>
         <View style={styles.headerRight}>
-          <Ionicons
-            name="time-outline"
+          <Icon
+            name="hourglass"
             size={ICON_SIZE}
-            color={isFinished ? colors.textFaint : colors.warning}
+            color={isFinished ? colors.textOnDarkMuted : colors.gold}
           />
           <Text style={[styles.time, isFinished && styles.timeFinished]}>
             {isFinished ? 'Bitti' : isPending ? 'Davet bekliyor' : formatTimeRemaining(challenge.endsAt)}
@@ -177,6 +189,8 @@ export function DuelCard({
             <View style={styles.midMarker} pointerEvents="none" />
           </View>
 
+          {/* The verdict sits on the bar itself, as a parchment pill straddling it —
+              the one word the card exists to say, placed where the eye already is. */}
           <View
             style={[
               styles.verdict,
@@ -185,19 +199,19 @@ export function DuelCard({
                   ? colors.surfaceRaised
                   : leading
                     ? colors.successSoft
-                    : colors.dangerSoft,
+                    : colors.fireSoft,
               },
             ]}
           >
-            <Ionicons
-              name={tied ? 'remove-outline' : leading ? 'trending-up' : 'trending-down'}
+            <Icon
+              name={tied ? 'minus' : leading ? 'xp-bolt-filled' : 'alert'}
               size={ICON_SIZE}
-              color={tied ? colors.textMuted : leading ? colors.successDark : colors.dangerDark}
+              color={tied ? colors.textMuted : leading ? colors.successDark : colors.fireDark}
             />
             <Text
               style={[
                 styles.verdictText,
-                { color: tied ? colors.textMuted : leading ? colors.successDark : colors.dangerDark },
+                { color: tied ? colors.textMuted : leading ? colors.successDark : colors.fireDark },
               ]}
             >
               {tied ? 'Berabere' : leading ? 'Öndesin' : 'Geridesin'}
@@ -247,33 +261,43 @@ export function DuelCard({
 }
 
 const styles = StyleSheet.create({
-  card: { ...cardStyle, gap: spacing.sm },
+  // Not `cardStyle`: this one panel is stone, framed in wood, so it reads as the
+  // contest board rather than another page of the user's own record.
+  card: {
+    backgroundColor: colors.panel,
+    borderRadius: radius.lg,
+    borderWidth: 2,
+    borderColor: colors.frame,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
 
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flex: 1 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  category: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase' },
-  time: { ...type.caption, color: colors.warningDark },
-  timeFinished: { color: colors.textFaint },
+  category: { ...type.overline, color: colors.textOnDarkMuted, textTransform: 'uppercase' },
+  time: { ...type.caption, color: colors.gold },
+  timeFinished: { color: colors.textOnDarkMuted },
 
   names: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm },
 
   scoreboard: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
   side: { flex: 1, gap: 2 },
   sideRight: { flex: 1, gap: 2, alignItems: 'flex-end' },
-  nameMine: { ...type.label, color: colors.accent, flex: 1 },
-  nameTheirs: { ...type.label, color: colors.textMuted, flex: 1, textAlign: 'right' },
-  score: { ...type.display, color: colors.text },
-  scoreTheirs: { color: colors.textMuted },
+  nameMine: { ...type.label, color: colors.textOnDark, flex: 1 },
+  nameTheirs: { ...type.label, color: colors.textOnDarkMuted, flex: 1, textAlign: 'right' },
+  score: { ...type.display, color: colors.textOnDark },
+  scoreTheirs: { color: colors.textOnDarkMuted },
   /** The unit, stated once between the two numbers instead of after each. */
-  versus: { ...type.overline, color: colors.textFaint, paddingBottom: spacing.sm },
+  versus: { ...type.overline, color: colors.textOnDarkMuted, paddingBottom: spacing.sm },
 
-  pendingNote: { ...type.body, color: colors.textMuted },
+  pendingNote: { ...type.body, color: colors.textOnDarkMuted },
 
   track: {
     height: TRACK_HEIGHT,
     borderRadius: radius.pill,
-    backgroundColor: colors.surfaceSunken,
+    // Darker than the panel, so the empty part of the track reads as cut into it.
+    backgroundColor: colors.stone,
     overflow: 'hidden',
   },
   fill: {
@@ -300,7 +324,7 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: 2,
-    backgroundColor: colors.bg,
+    backgroundColor: colors.panel,
   },
 
   verdict: {
@@ -311,16 +335,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
+    // Pulls the pill up over the bar it is judging.
+    marginTop: -(TRACK_HEIGHT / 2 + spacing.xs),
+    borderWidth: 2,
+    borderColor: colors.frame,
   },
   verdictText: { ...type.label },
 
   timeTrack: {
     height: TIME_TRACK_HEIGHT,
     borderRadius: radius.pill,
-    backgroundColor: colors.surfaceSunken,
+    backgroundColor: colors.stone,
     overflow: 'hidden',
   },
-  timeFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.warning },
+  timeFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.gold },
 
   actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
   actionButton: { flex: 1 },

@@ -30,7 +30,7 @@
  *
  * Each bar is built like the XP bar — thick, fully rounded, with a lighter line along
  * the top of the fill — because that bar is the app's signature object and a stat is
- * the same idea at a smaller size. On a white ground a thin grey rule would vanish.
+ * the same idea at a smaller size. On parchment a thin grey rule would vanish.
  *
  * Bars animate their width on mount and whenever a value changes, reusing XpBar's
  * approach: a shared value driven with `withTiming` and read back in an animated
@@ -84,7 +84,7 @@ export function StatRadar({ stats }: StatRadarProps): React.JSX.Element {
     return (
       <View style={styles.container}>
         <View style={styles.headerRow}>
-          <Text style={styles.title}>Statlar</Text>
+          <Text style={styles.title}>İstatlar</Text>
         </View>
         <Text style={styles.empty}>
           Henüz stat puanın yok. İlk seansını tamamladığında alışkanlığın beslediği stat
@@ -97,7 +97,7 @@ export function StatRadar({ stats }: StatRadarProps): React.JSX.Element {
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Statlar</Text>
+        <Text style={styles.title}>İstatlar</Text>
         {/* The total is the card's headline figure, so it gets display type and the
             unit is demoted to a caption beside it. */}
         <View style={styles.totalGroup}>
@@ -173,9 +173,9 @@ function StatRow({ stat, value, ratio, delayMs }: StatRowProps): React.JSX.Eleme
 const styles = StyleSheet.create({
   container: { ...cardStyle, gap: spacing.md },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  title: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase' },
+  title: { ...type.heading, color: colors.text },
   totalGroup: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs },
-  total: { ...type.display, color: colors.text },
+  total: { ...type.heading, color: colors.text, fontVariant: ['tabular-nums'] },
   totalUnit: { ...type.caption, color: colors.textMuted },
   empty: { ...type.body, color: colors.textFaint, lineHeight: 21 },
 

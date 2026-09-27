@@ -6,9 +6,9 @@
  * stays readable so the user can see how to earn them — a locked badge with a hidden
  * description is just a grey square.
  *
- * Earned and locked are separated by more than opacity, which on a white ground is
- * only a faint grey wash and reads as "still loading". An earned badge is a white
- * card with a solid tier-coloured outline and a filled medal; a locked one is sunken
+ * Earned and locked are separated by more than opacity, which on parchment is only a
+ * faint wash and reads as "still loading". An earned badge is a parchment card with
+ * a solid tier-coloured outline and a filled medal; a locked one is sunken
  * into the page behind a dashed outline, with a padlock where the medal would be. The
  * difference survives a screenshot, a bright screen, and colour blindness.
  *
@@ -19,7 +19,6 @@
  * component's copy to translate.
  */
 
-import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -28,15 +27,14 @@ import Animated, { FadeIn } from 'react-native-reanimated';
 import type { Achievement, AchievementTier } from '../api/profile';
 import { colors, radius, spacing, type } from '../theme';
 import { cardStyle } from './Button';
-
-type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+import { Icon, type IconName } from './Icon';
 
 /** Tier accent colours, reusing theme tokens rather than inventing metal shades. */
 const TIER_COLORS: Readonly<Record<AchievementTier, string>> = {
-  BRONZE: colors.warning,
-  SILVER: colors.textMuted,
-  GOLD: colors.accentBright,
-  PLATINUM: colors.success,
+  BRONZE: colors.fireDark,
+  SILVER: colors.textFaint,
+  GOLD: colors.goldDark,
+  PLATINUM: colors.xp,
 };
 
 const TIER_LABELS: Readonly<Record<AchievementTier, string>> = {
@@ -51,14 +49,14 @@ const TIER_LABELS: Readonly<Record<AchievementTier, string>> = {
  *
  * A real icon per tier rather than the badge's initials: initials of a
  * backend-supplied English name carry no meaning at 44px, whereas the escalating
- * ribbon → medal → trophy → diamond sequence tells the user which tier they are
+ * shield → medal → trophy → star sequence tells the user which tier they are
  * looking at without reading anything.
  */
-const TIER_ICONS: Readonly<Record<AchievementTier, IoniconName>> = {
-  BRONZE: 'ribbon',
+const TIER_ICONS: Readonly<Record<AchievementTier, IconName>> = {
+  BRONZE: 'shield-check',
   SILVER: 'medal',
   GOLD: 'trophy',
-  PLATINUM: 'diamond',
+  PLATINUM: 'star-filled',
 };
 
 /** Higher sorts first. Unknown tiers fall to the bottom rather than throwing. */
@@ -150,8 +148,8 @@ export function AchievementShelf({ achievements }: AchievementShelfProps): React
                     : styles.medalLocked,
                 ]}
               >
-                <Ionicons
-                  name={earned ? (tier ? TIER_ICONS[tier] : 'ribbon') : 'lock-closed'}
+                <Icon
+                  name={earned ? (tier ? TIER_ICONS[tier] : 'medal') : 'lock'}
                   size={MEDAL_ICON_SIZE}
                   color={earned ? colors.textOnAccent : colors.textFaint}
                 />
@@ -197,9 +195,9 @@ function formatEarnedAt(iso: string): string {
 const styles = StyleSheet.create({
   container: { ...cardStyle, gap: spacing.md },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  title: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase' },
+  title: { ...type.heading, color: colors.text },
   counterGroup: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs },
-  counterEarned: { ...type.display, color: colors.text },
+  counterEarned: { ...type.display, color: colors.text, fontVariant: ['tabular-nums'] },
   counterTotal: { ...type.caption, color: colors.textMuted, fontVariant: ['tabular-nums'] },
   empty: { ...type.body, color: colors.textFaint, lineHeight: 21 },
 

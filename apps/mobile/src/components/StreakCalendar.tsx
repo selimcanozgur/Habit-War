@@ -15,12 +15,12 @@
  * training late at night.
  */
 
-import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
 import { colors, radius, spacing, type } from '../theme';
 import { cardStyle } from './Button';
+import { Icon } from './Icon';
 
 const WEEKS = 5;
 const DAYS_PER_WEEK = 7;
@@ -61,13 +61,13 @@ export function StreakCalendar({
             with the flame beside it rather than buried in a sentence. */}
         {currentStreak > 0 ? (
           <View style={styles.streakGroup}>
-            <Ionicons name="flame" size={FLAME_SIZE} color={colors.warning} />
+            <Icon name="flame-filled" size={FLAME_SIZE} color={colors.fire} />
             <Text style={styles.streakCount}>{currentStreak}</Text>
             <Text style={styles.streakUnit}>günlük seri</Text>
           </View>
         ) : (
           <View style={styles.streakGroup}>
-            <Ionicons name="flame-outline" size={FLAME_SIZE} color={colors.textFaint} />
+            <Icon name="flame" size={FLAME_SIZE} color={colors.textFaint} />
             <Text style={styles.streakEmpty}>Seri yok</Text>
           </View>
         )}
@@ -168,10 +168,10 @@ function describeCell(dateKey: string, isActive: boolean, isFuture: boolean): st
 const styles = StyleSheet.create({
   container: { ...cardStyle, gap: spacing.md },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  title: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase' },
+  title: { ...type.heading, color: colors.text },
 
   streakGroup: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  streakCount: { ...type.display, color: colors.warningDark },
+  streakCount: { ...type.display, color: colors.fireDark, fontVariant: ['tabular-nums'] },
   streakUnit: { ...type.caption, color: colors.textMuted },
   streakEmpty: { ...type.label, color: colors.textFaint },
 

@@ -20,7 +20,6 @@
  * via the overflow button and via long-press, since users reach for either.
  */
 
-import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { memo, useCallback, useState } from 'react';
 import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -33,8 +32,9 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { formatRelativeTime, type Post, type ReportReason } from '../api/feed';
-import { colors, radius, spacing, type } from '../theme';
+import { categoryLabels, colors, radius, spacing, type } from '../theme';
 import { Button, cardStyle } from './Button';
+import { Icon } from './Icon';
 
 export interface PostCardProps {
   readonly post: Post;
@@ -166,7 +166,7 @@ function PostCardImpl({ post, onToggleLike, onReport, onBlock }: PostCardProps):
           accessibilityRole="button"
           accessibilityLabel="Gönderi seçenekleri"
         >
-          <Ionicons name="ellipsis-horizontal" size={ICON_SIZE} color={colors.textMuted} />
+          <Icon name="ellipsis" size={ICON_SIZE} color={colors.textMuted} />
         </Pressable>
       </View>
 
@@ -227,8 +227,8 @@ function PostCardImpl({ post, onToggleLike, onReport, onBlock }: PostCardProps):
             be scaled through `fontSize` on the UI thread the way a transform can.
           */}
           <Animated.View style={heartStyle}>
-            <Ionicons
-              name={post.likedByMe ? 'heart' : 'heart-outline'}
+            <Icon
+              name={post.likedByMe ? 'heart-filled' : 'heart'}
               size={ICON_SIZE}
               color={post.likedByMe ? colors.danger : colors.textMuted}
             />
@@ -243,7 +243,7 @@ function PostCardImpl({ post, onToggleLike, onReport, onBlock }: PostCardProps):
           accessibilityRole="text"
           accessibilityLabel={`${post.replyCount} yorum`}
         >
-          <Ionicons name="chatbubble-outline" size={ICON_SIZE} color={colors.textMuted} />
+          <Icon name="comment" size={ICON_SIZE} color={colors.textMuted} />
           <Text style={styles.footerCount}>{post.replyCount}</Text>
         </View>
       </View>
@@ -311,7 +311,7 @@ function PostBody({ post }: { readonly post: Post }): React.JSX.Element {
       return (
         <View style={styles.body}>
           <View style={styles.sessionRow}>
-            <Ionicons name="time-outline" size={ICON_SIZE_SMALL} color={colors.textMuted} />
+            <Icon name="clock" size={ICON_SIZE_SMALL} color={colors.textMuted} />
             <Text style={styles.sessionText} numberOfLines={2}>
               {summary}
             </Text>
@@ -327,7 +327,7 @@ function PostBody({ post }: { readonly post: Post }): React.JSX.Element {
         <View style={styles.body}>
           <View style={styles.celebrationRow}>
             <View style={[styles.celebrationDisc, styles.celebrationDiscLevel]}>
-              <Ionicons name="trending-up" size={ICON_SIZE_DISC} color={colors.textOnAccent} />
+              <Icon name="xp-bolt-filled" size={ICON_SIZE_DISC} color={colors.textOnAccent} />
             </View>
             <Text style={styles.celebrationText}>
               {post.level !== undefined
@@ -344,7 +344,7 @@ function PostBody({ post }: { readonly post: Post }): React.JSX.Element {
         <View style={styles.body}>
           <View style={styles.celebrationRow}>
             <View style={[styles.celebrationDisc, styles.celebrationDiscBadge]}>
-              <Ionicons name="ribbon" size={ICON_SIZE_DISC} color={colors.textOnAccent} />
+              <Icon name="medal" size={ICON_SIZE_DISC} color={colors.textOnAccent} />
             </View>
             <Text style={styles.celebrationText}>
               {post.achievementName
@@ -360,7 +360,7 @@ function PostBody({ post }: { readonly post: Post }): React.JSX.Element {
       return (
         <View style={styles.body}>
           <View style={styles.duelRow}>
-            <Ionicons name="flame" size={ICON_SIZE_SMALL} color={colors.warningDark} />
+            <Icon name="flame-filled" size={ICON_SIZE_SMALL} color={colors.fire} />
             <Text style={styles.duelLabel}>DÜELLO SONUCU</Text>
           </View>
           <Text style={styles.content}>{post.content || 'Bir düello tamamlandı.'}</Text>
@@ -402,20 +402,9 @@ function StatChip({
   );
 }
 
-/** Turkish labels for the API's category enum. */
-const CATEGORY_LABELS: Readonly<Record<string, string>> = {
-  FITNESS: 'Spor',
-  STUDY: 'Ders',
-  MINDFULNESS: 'Zihin',
-  CREATIVE: 'Yaratıcılık',
-  SOCIAL: 'Sosyal',
-  HEALTH: 'Sağlık',
-  SKILL: 'Beceri',
-};
-
 /** Falls through to the raw value so an enum added server-side still renders. */
 function categoryLabel(category: string): string {
-  return CATEGORY_LABELS[category] ?? category;
+  return categoryLabels[category] ?? category;
 }
 
 /** "bugün" / "dün" reads far better than a date on a digest headline. */
@@ -446,7 +435,7 @@ const styles = StyleSheet.create({
    * A celebration is the one card allowed to colour itself. The tint plus the accent
    * border is enough — no shadow, because in this language depth is an edge.
    */
-  cardCelebration: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+  cardCelebration: { borderColor: colors.xp, backgroundColor: colors.xpSoft },
 
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   avatar: {
@@ -468,7 +457,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: 1,
     borderRadius: radius.pill,
-    backgroundColor: colors.accent,
+    backgroundColor: colors.xp,
   },
   levelBadgeText: { ...type.caption, color: colors.textOnAccent },
   meta: { ...type.caption, color: colors.textFaint },
@@ -485,20 +474,26 @@ const styles = StyleSheet.create({
 
   digestHeadline: { ...type.heading, color: colors.text },
   digestFootnote: { ...type.caption, color: colors.textMuted },
-  /** Recessed, so the day's totals read as a panel set into the card. */
+  /**
+   * A stone band inset into the parchment. Dark rather than merely recessed because
+   * a day's totals are the one thing on this card that should read as a readout —
+   * and on parchment the only way to get that is to change the ground, not the tint.
+   */
   statStrip: {
     flexDirection: 'row',
     gap: spacing.sm,
-    backgroundColor: colors.surfaceSunken,
+    backgroundColor: colors.stone,
     borderRadius: radius.md,
+    borderWidth: 2,
+    borderColor: colors.frame,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.sm,
   },
   statChip: { flex: 1, alignItems: 'center', gap: 2 },
   /** Display size: on a digest the number is the post. */
-  statChipValue: { ...type.display, color: colors.text },
-  statChipValueHighlight: { color: colors.successDark },
-  statChipLabel: { ...type.overline, color: colors.textMuted },
+  statChipValue: { ...type.display, color: colors.textOnDark },
+  statChipValueHighlight: { color: colors.success },
+  statChipLabel: { ...type.overline, color: colors.textOnDarkMuted },
 
   sessionRow: {
     flexDirection: 'row',
@@ -517,14 +512,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  celebrationDiscLevel: { backgroundColor: colors.accent },
+  celebrationDiscLevel: { backgroundColor: colors.xp },
   /** Warmth for a badge, so the two celebrations are not the same card twice. */
-  celebrationDiscBadge: { backgroundColor: colors.warning },
-  // Accent *dark* rather than bright: the text sits on the tinted celebration fill.
-  celebrationText: { ...type.heading, color: colors.accentDark, flex: 1 },
+  celebrationDiscBadge: { backgroundColor: colors.gold },
+  // The *dark* step rather than the bright one: the text sits on the tinted fill.
+  celebrationText: { ...type.heading, color: colors.xpDark, flex: 1 },
 
   duelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  duelLabel: { ...type.overline, color: colors.warningDark },
+  duelLabel: { ...type.overline, color: colors.fireDark },
 
   /** A tinted tray, so the open menu reads as attached to this card and not the list. */
   menu: {

@@ -11,8 +11,8 @@
  * beyond their position, and modelling them as variants would only grow.
  *
  * Visually the row is a card: it borrows `cardStyle` so a row and a panel carry the
- * same 2px outline. On a white ground the border is the only thing separating one
- * row from the next, which is why it is never thinner than the shared token.
+ * same 2px outline. On parchment the border is the only thing separating one row
+ * from the next, which is why it is never thinner than the shared token.
  */
 
 import { memo } from 'react';
@@ -34,6 +34,11 @@ export interface UserRowProps {
   readonly highlighted?: boolean;
   /** Rank badge, shown in place of nothing on leaderboard rows. */
   readonly leading?: React.ReactNode;
+  /**
+   * Draws the small presence dot on the avatar, as the friend list does.
+   * Purely decorative — the meta line still carries every fact in text.
+   */
+  readonly showPresence?: boolean;
 }
 
 /** Initials, for the common case of a user with no uploaded avatar. */
@@ -53,6 +58,7 @@ function UserRowInner({
   onPress,
   highlighted = false,
   leading,
+  showPresence = false,
 }: UserRowProps): React.JSX.Element {
   const descriptor = [`Seviye ${user.level}`, describeClass(user.classType)].join(' · ');
 
@@ -60,12 +66,15 @@ function UserRowInner({
     <>
       {leading}
 
-      <View style={[styles.avatar, highlighted && styles.avatarHighlighted]}>
-        {user.avatarUrl !== null ? (
-          <Image source={{ uri: user.avatarUrl }} style={styles.avatarImage} />
-        ) : (
-          <Text style={styles.avatarInitials}>{initialsOf(user)}</Text>
-        )}
+      <View style={styles.avatarWrap}>
+        <View style={[styles.avatar, highlighted && styles.avatarHighlighted]}>
+          {user.avatarUrl !== null ? (
+            <Image source={{ uri: user.avatarUrl }} style={styles.avatarImage} />
+          ) : (
+            <Text style={styles.avatarInitials}>{initialsOf(user)}</Text>
+          )}
+        </View>
+        {showPresence ? <View style={styles.presenceDot} pointerEvents="none" /> : null}
       </View>
 
       <View style={styles.text}>
@@ -109,6 +118,8 @@ export const UserRow = memo(UserRowInner);
 const AVATAR_SIZE = 44;
 /** Matches the 2px outline this language uses everywhere else. */
 const AVATAR_BORDER = 2;
+/** Large enough to register at a glance, small enough not to crop the avatar. */
+const PRESENCE_SIZE = 12;
 
 const styles = StyleSheet.create({
   row: {
@@ -120,10 +131,11 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   // "You" is marked by a tinted fill as well as the border: colour alone would be
-  // invisible to anyone who cannot distinguish the violet from the grey.
-  rowHighlighted: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+  // invisible to anyone who cannot distinguish the gold from the parchment.
+  rowHighlighted: { borderColor: colors.goldDark, backgroundColor: colors.goldSoft },
   rowPressed: { opacity: 0.7 },
 
+  avatarWrap: { width: AVATAR_SIZE, height: AVATAR_SIZE },
   avatar: {
     width: AVATAR_SIZE,
     height: AVATAR_SIZE,
@@ -135,7 +147,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  avatarHighlighted: { borderColor: colors.accent },
+  avatarHighlighted: { borderColor: colors.goldDark },
+  // Sits on the avatar's lower-right, ringed in the card colour so it reads as an
+  // object on top of the photo rather than a spot of dirt in it.
+  presenceDot: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: PRESENCE_SIZE,
+    height: PRESENCE_SIZE,
+    borderRadius: radius.pill,
+    backgroundColor: colors.success,
+    borderWidth: 2,
+    borderColor: colors.surface,
+  },
   // Inset by the border so a photo fills the circle instead of overflowing it.
   avatarImage: {
     width: AVATAR_SIZE - AVATAR_BORDER * 2,

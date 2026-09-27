@@ -9,14 +9,12 @@
  * It also shows *why* the XP was what it was. XP the user cannot explain is XP they
  * will not trust, and the API already returns the full multiplier breakdown.
  *
- * The backdrop is a pale violet wash, not a dark scrim. A near-black veil was correct
- * when the app was dark and is actively wrong now: it would read as an error state or
- * a video player in the middle of the app's happiest moment. Tinting the whole screen
- * with the primary's soft shade says "something good happened" before a word is read,
- * and leaves the white card standing clearly on top of it.
+ * The backdrop is stone at three-quarters opacity. The app's ground is already dark,
+ * so a pale veil would read as a blank page rather than a layer above one; dimming
+ * the world instead pushes everything but the parchment card out of focus, which is
+ * exactly the emphasis this moment wants.
  */
 
-import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -33,7 +31,16 @@ import Animated, {
 import type { CompleteSessionResponse } from '../api/sessions';
 import { colors, radius, spacing, statColors, statLabels, type } from '../theme';
 import { Button, cardStyle } from './Button';
+import { Icon, STAT_ICONS } from './Icon';
 import { XpBar } from './XpBar';
+
+/**
+ * The scrim over the world behind the card.
+ *
+ * Written as rgba rather than a token because `colors.stone` is opaque and the
+ * overlay needs to let the screen beneath show through; the channels are stone's.
+ */
+const OVERLAY_TINT = 'rgba(30, 30, 28, 0.78)';
 
 const CHIP_ICON_SIZE = 16;
 const NOTICE_ICON_SIZE = 18;
@@ -69,6 +76,7 @@ export function SessionReward({
 
   const ratio = result.xpForNextLevel === 0 ? 1 : result.xpIntoLevel / result.xpForNextLevel;
   const statColor = statColors[result.stat];
+  const statIcon = STAT_ICONS[result.stat] ?? 'star';
 
   return (
     <Animated.View entering={FadeIn.duration(220)} style={styles.overlay}>
@@ -79,7 +87,7 @@ export function SessionReward({
 
         <View style={styles.chips}>
           <View style={[styles.chip, { borderColor: statColor }]}>
-            <Ionicons name="arrow-up-circle" size={CHIP_ICON_SIZE} color={statColor} />
+            <Icon name={statIcon} size={CHIP_ICON_SIZE} color={statColor} />
             <Text style={[styles.chipText, { color: statColor }]}>
               +{result.statXp} {statLabels[result.stat]}
               {result.statPointsGained > 0 ? ` · +${result.statPointsGained} puan` : ''}
@@ -88,7 +96,7 @@ export function SessionReward({
 
           {result.streak > 1 && (
             <View style={styles.chip}>
-              <Ionicons name="flame" size={CHIP_ICON_SIZE} color={colors.warning} />
+              <Icon name="flame-filled" size={CHIP_ICON_SIZE} color={colors.fire} />
               <Text style={styles.chipText}>{result.streak} günlük seri</Text>
             </View>
           )}
@@ -101,7 +109,7 @@ export function SessionReward({
         */}
         {result.hitDailyCap && (
           <View style={styles.capNotice}>
-            <Ionicons name="alert-circle" size={NOTICE_ICON_SIZE} color={colors.warningDark} />
+            <Icon name="alert" size={NOTICE_ICON_SIZE} color={colors.fireDark} />
             <Text style={styles.capNoticeText}>
               Bugünkü tavana ulaştın — bu seansın bir kısmı azalan verimle sayıldı.
             </Text>
@@ -121,7 +129,7 @@ export function SessionReward({
 
         {celebrating && (
           <Animated.View style={[styles.levelBadge, badgeStyle]}>
-            <Ionicons name="sparkles" size={NOTICE_ICON_SIZE} color={colors.textOnAccent} />
+            <Icon name="star-filled" size={NOTICE_ICON_SIZE} color={colors.textOnAccent} />
             <Text style={styles.levelBadgeText}>Seviye {result.level}</Text>
           </Animated.View>
         )}
@@ -135,20 +143,20 @@ export function SessionReward({
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: colors.accentSoft,
+    backgroundColor: OVERLAY_TINT,
     justifyContent: 'center',
     padding: spacing.lg,
   },
   card: {
     ...cardStyle,
-    // The card's outline is the primary rather than the usual grey: on the tinted
-    // backdrop a grey border would disappear into it.
-    borderColor: colors.accent,
+    // Gold rather than the usual warm border: against the dimmed world the card
+    // should read as the one lit object on the screen.
+    borderColor: colors.goldDark,
     padding: spacing.lg,
     gap: spacing.md,
   },
   habit: { ...type.label, color: colors.textMuted, textAlign: 'center' },
-  xp: { ...type.display, color: colors.accent, textAlign: 'center' },
+  xp: { ...type.display, color: colors.xp, textAlign: 'center' },
 
   chips: { flexDirection: 'row', gap: spacing.sm, justifyContent: 'center', flexWrap: 'wrap' },
   chip: {
@@ -170,9 +178,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.sm,
     borderRadius: radius.md,
-    backgroundColor: colors.warningSoft,
+    backgroundColor: colors.fireSoft,
   },
-  capNoticeText: { ...type.caption, color: colors.warningDark, flex: 1 },
+  capNoticeText: { ...type.caption, color: colors.fireDark, flex: 1 },
 
   barWrapper: { marginTop: spacing.xs },
   levelBadge: {
@@ -183,7 +191,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
     borderRadius: radius.pill,
-    backgroundColor: colors.accent,
+    backgroundColor: colors.xp,
   },
   levelBadgeText: { ...type.heading, color: colors.textOnAccent },
 });

@@ -15,23 +15,24 @@
  *     quality multiplier. It is reported honestly rather than hidden, so the user can
  *     see why a distracted session scored lower.
  *
- * Visually it follows the app's light language: the habit list is a stack of bordered
- * cards that compress when pressed, and the running session is one card whose only
- * job is to hold the number. Every control comes from `Button`, so the press feel is
- * identical here and everywhere else.
+ * Visually it follows the parchment language: an illustrated hero heads the screen,
+ * and below it a single "Bugün" sheet holds the day's habits as rows rather than as
+ * a stack of separate cards. Grouping them matters — the card's header carries the
+ * "3 / 5" progress for the day, which is the one number this screen exists to move,
+ * and a row inside a sheet can state its own completion without becoming a card of
+ * its own.
  */
 
-import { Ionicons } from '@expo/vector-icons';
 import type { Category } from '@habitwar/domain';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
   type AppStateStatus,
-  FlatList,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -48,29 +49,13 @@ import {
   type CompleteSessionResponse,
   type Habit,
 } from '../src/api/sessions';
+import { getCurrentSeason, normaliseSeason } from '../src/api/social';
 import { Button, cardStyle } from '../src/components/Button';
+import { CATEGORY_ICONS, Icon, type IconName } from '../src/components/Icon';
+import { ScreenHero } from '../src/components/ScreenHero';
 import { SessionReward } from '../src/components/SessionReward';
 import { formatElapsed, TICK_MS, useTimerStore } from '../src/stores/timer';
-import { colors, depth, radius, spacing, statColors, type } from '../src/theme';
-
-type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
-
-/**
- * A glyph per habit category.
- *
- * A habit row should be identifiable before it is read — scanning five icons is
- * faster than scanning five names — and a real icon set does that where a coloured
- * dot only ever carried the stat.
- */
-const CATEGORY_ICONS: Readonly<Record<Category, IoniconName>> = {
-  FITNESS: 'barbell',
-  STUDY: 'book',
-  MINDFULNESS: 'leaf',
-  CREATIVE: 'color-palette',
-  SOCIAL: 'chatbubbles',
-  HEALTH: 'heart',
-  SKILL: 'construct',
-};
+import { colors, radius, spacing, statColors, type } from '../src/theme';
 
 /** One size for a list row, one for the running session's header. */
 const ICON_SIZE = 22;
@@ -86,6 +71,18 @@ const ICON_SIZE_SMALL = 18;
  */
 function habitAccent(habit: Habit): string {
   return habit.stat ? statColors[habit.stat] : habit.colorHex;
+}
+
+/** The glyph for a habit's category, with a neutral fallback for unknown enums. */
+function habitIcon(category: Category): IconName {
+  return CATEGORY_ICONS[category] ?? 'play';
+}
+
+/** `YYYY-MM-DD` in the device's own timezone, which is what the API's dates mean. */
+function localDateKey(date: Date): string {
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
 }
 
 /**
@@ -107,10 +104,12 @@ export default function TimerScreen(): React.JSX.Element {
 
   const habitsQuery = useQuery({ queryKey: ['habits'], queryFn: listHabits });
   const activeQuery = useQuery({ queryKey: ['activeSession'], queryFn: getActiveSession });
+  const seasonQuery = useQuery({ queryKey: ['currentSeason'], queryFn: getCurrentSeason });
 
   const habits = habitsQuery.data?.habits ?? [];
   const activeSession = activeQuery.data?.session ?? null;
   const runningHabit = habits.find((habit) => habit.id === timer.habitId) ?? null;
+  const season = useMemo(() => normaliseSeason(seasonQuery.data?.season), [seasonQuery.data]);
 
   // Adopt whatever session the server says is running. This is what makes the timer
   // survive a reinstall or a second device.
@@ -198,7 +197,7 @@ export default function TimerScreen(): React.JSX.Element {
     return (
       <SafeAreaView style={styles.centered}>
         <View style={styles.stateBadge}>
-          <Ionicons name="cloud-offline" size={ICON_SIZE_LARGE} color={colors.danger} />
+          <Icon name="cloud-off" size={ICON_SIZE_LARGE} color={colors.danger} />
         </View>
         <Text style={styles.errorTitle}>Bağlanılamadı</Text>
         <Text style={styles.errorBody}>{describeError(habitsQuery.error)}</Text>
@@ -224,9 +223,14 @@ export default function TimerScreen(): React.JSX.Element {
   const targetRatio = targetSec > 0 ? Math.min(1, timer.elapsedSec / targetSec) : 0;
   const undisturbed = timer.interruptions === 0;
 
-  return (
-    <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
-      {isRunning ? (
+  const today = localDateKey(new Date());
+  const doneToday = habits.filter((habit) => habit.lastCompletedDate === today).length;
+
+  // A running session takes over the whole screen: there is exactly one thing to look
+  // at, and the hero would only push the readout off a small handset.
+  if (isRunning) {
+    return (
+      <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
         <View style={styles.runningPane}>
           <View style={styles.runningCard}>
             <View
@@ -236,8 +240,8 @@ export default function TimerScreen(): React.JSX.Element {
                 { backgroundColor: runningHabit ? habitAccent(runningHabit) : colors.accent },
               ]}
             >
-              <Ionicons
-                name={runningHabit ? CATEGORY_ICONS[runningHabit.category] : 'flash'}
+              <Icon
+                name={runningHabit ? habitIcon(runningHabit.category) : 'xp-bolt-filled'}
                 size={ICON_SIZE_LARGE}
                 color={colors.textOnAccent}
               />
@@ -272,15 +276,15 @@ export default function TimerScreen(): React.JSX.Element {
             )}
 
             <View style={[styles.statusChip, undisturbed ? styles.statusGood : styles.statusWarn]}>
-              <Ionicons
-                name={undisturbed ? 'checkmark-circle' : 'alert-circle'}
+              <Icon
+                name={undisturbed ? 'check-circle-filled' : 'alert'}
                 size={ICON_SIZE_SMALL}
-                color={undisturbed ? colors.successDark : colors.warningDark}
+                color={undisturbed ? colors.successDark : colors.fireDark}
               />
               <Text
                 style={[
                   styles.statusText,
-                  { color: undisturbed ? colors.successDark : colors.warningDark },
+                  { color: undisturbed ? colors.successDark : colors.fireDark },
                 ]}
               >
                 {undisturbed ? 'Kesintisiz — bonus kazanıyorsun' : `${timer.interruptions} kesinti`}
@@ -307,77 +311,170 @@ export default function TimerScreen(): React.JSX.Element {
             />
           </View>
         </View>
-      ) : (
-        <View style={styles.idlePane}>
-          <Text style={styles.title}>Bugün</Text>
-          <Text style={styles.subtitle}>Bir alışkanlık seç ve başla.</Text>
 
-          <Text style={styles.overline}>ALIŞKANLIKLARIN</Text>
+        {error && (
+          <View style={styles.errorBanner} accessibilityRole="alert">
+            <Icon name="alert" size={ICON_SIZE_SMALL} color={colors.danger} />
+            <Text style={styles.errorBannerText}>{error}</Text>
+          </View>
+        )}
 
-          <FlatList
-            data={habits}
-            keyExtractor={(habit) => habit.id}
-            contentContainerStyle={styles.list}
-            ListEmptyComponent={
+        {reward && (
+          <SessionReward
+            result={reward}
+            habitName={habits.find((habit) => habit.id === reward.session.habitId)?.name ?? 'Seans'}
+            onDismiss={dismissReward}
+          />
+        )}
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <View style={styles.screen}>
+      {/*
+        A plain ScrollView rather than a FlatList: the hero has to scroll with the
+        content, and the habit list is one sheet of a handful of rows — virtualising
+        it would buy nothing and cost the grouped card its single background.
+      */}
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+      >
+        <ScreenHero image="today" title="Bugün" subtitle="Bir alışkanlık seç ve başla." />
+
+        <View style={styles.pane}>
+          <View style={styles.sheet}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Bugün</Text>
+              <Text
+                style={styles.sheetCount}
+                accessibilityLabel={`${habits.length} alışkanlıktan ${doneToday} tanesi tamamlandı`}
+              >
+                {doneToday} / {habits.length}
+              </Text>
+            </View>
+
+            {habits.length === 0 ? (
               <View style={styles.empty}>
                 <View style={styles.stateBadge}>
-                  <Ionicons name="add-circle" size={ICON_SIZE_LARGE} color={colors.accent} />
+                  <Icon name="plus" size={ICON_SIZE_LARGE} color={colors.accent} />
                 </View>
                 <Text style={styles.emptyText}>Henüz alışkanlık yok.</Text>
               </View>
-            }
-            renderItem={({ item }: { item: Habit }) => (
-              // The slab under the card is this language's press signature: the face
-              // slides down onto it, which reads as physical where a shadow would
-              // simply disappear on a white ground.
-              <Pressable
-                style={[styles.habitSlab, busy && styles.inert]}
-                disabled={busy}
-                onPress={() => startMutation.mutate(item.id)}
-                accessibilityRole="button"
-                accessibilityLabel={`${item.name} seansı başlat`}
-              >
-                {({ pressed }) => (
-                  <View style={[styles.habitFace, pressed && styles.habitFacePressed]}>
-                    <View style={[styles.habitIcon, { backgroundColor: habitAccent(item) }]}>
-                      <Ionicons
-                        name={CATEGORY_ICONS[item.category]}
-                        size={ICON_SIZE}
-                        color={colors.textOnAccent}
-                      />
-                    </View>
+            ) : (
+              habits.map((habit, index) => {
+                const done = habit.lastCompletedDate === today;
+                return (
+                  <Pressable
+                    key={habit.id}
+                    style={[styles.habitRow, index > 0 && styles.habitRowDivided, busy && styles.inert]}
+                    disabled={busy}
+                    onPress={() => startMutation.mutate(habit.id)}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: busy, checked: done }}
+                    accessibilityLabel={`${habit.name} seansı başlat${done ? '. Bugün tamamlandı.' : ''}`}
+                  >
+                    {({ pressed }) => (
+                      <View style={[styles.habitRowInner, pressed && styles.habitRowPressed]}>
+                        <View style={[styles.habitIcon, { backgroundColor: habitAccent(habit) }]}>
+                          <Icon
+                            name={habitIcon(habit.category)}
+                            size={ICON_SIZE}
+                            color={colors.textOnAccent}
+                          />
+                        </View>
 
-                    <View style={styles.habitText}>
-                      <Text style={styles.habitName} numberOfLines={1}>
-                        {item.name}
-                      </Text>
-                      <View style={styles.habitMetaRow}>
-                        <Text style={styles.habitMeta}>{item.targetMinutes} dk</Text>
-                        {item.currentStreak > 0 && (
-                          <View style={styles.streakChip}>
-                            <Ionicons
-                              name="flame"
-                              size={ICON_SIZE_SMALL}
-                              color={colors.warningDark}
-                            />
-                            <Text style={styles.streakText}>{item.currentStreak} günlük seri</Text>
+                        <View style={styles.habitText}>
+                          <Text style={styles.habitName} numberOfLines={1}>
+                            {habit.name}
+                          </Text>
+                          <View style={styles.habitMetaRow}>
+                            <Text style={styles.habitMeta}>{habit.targetMinutes} dk</Text>
+                            {habit.currentStreak > 0 && (
+                              <View style={styles.streakChip}>
+                                <Icon
+                                  name="flame-filled"
+                                  size={ICON_SIZE_SMALL}
+                                  color={colors.fireDark}
+                                />
+                                <Text style={styles.streakText}>
+                                  {habit.currentStreak} günlük seri
+                                </Text>
+                              </View>
+                            )}
                           </View>
+                        </View>
+
+                        {/*
+                          Completion is a state, not a control, so it reads as a mark
+                          on the row rather than a second thing to press — the row
+                          itself is the only pressable here.
+                        */}
+                        {done ? (
+                          <Icon
+                            name="check-circle-filled"
+                            size={ICON_SIZE_LARGE}
+                            color={colors.success}
+                          />
+                        ) : (
+                          <Icon name="play-filled" size={ICON_SIZE_LARGE} color={colors.accent} />
                         )}
                       </View>
-                    </View>
-
-                    <Ionicons name="play-circle" size={ICON_SIZE_LARGE} color={colors.accent} />
-                  </View>
-                )}
-              </Pressable>
+                    )}
+                  </Pressable>
+                );
+              })
             )}
-          />
+          </View>
+
+          {/*
+            The season panel. Stone rather than parchment, because a season is the
+            world speaking rather than the user's own record — and hidden entirely
+            when there is no season, since an empty banner teaches nothing.
+          */}
+          {season !== null && (
+            <View style={styles.seasonPanel}>
+              <View style={styles.seasonDisc}>
+                <Icon name="swords" size={ICON_SIZE} color={colors.gold} />
+              </View>
+
+              <View style={styles.seasonText}>
+                <Text style={styles.seasonLabel}>AKTİF SEZON</Text>
+                <Text style={styles.seasonName} numberOfLines={1}>
+                  {season.name}
+                </Text>
+                <View style={styles.seasonBadgeRow}>
+                  {season.theme !== null && (
+                    <View style={styles.seasonChip}>
+                      <Icon name="star-filled" size={ICON_SIZE_SMALL - 4} color={colors.gold} />
+                      <Text style={styles.seasonChipText} numberOfLines={1}>
+                        {season.theme}
+                      </Text>
+                    </View>
+                  )}
+                  {season.eventMultiplier !== null && (
+                    <View style={[styles.seasonChip, styles.seasonChipXp]}>
+                      <Icon
+                        name="star-filled"
+                        size={ICON_SIZE_SMALL - 4}
+                        color={colors.textOnAccent}
+                      />
+                      <Text style={[styles.seasonChipText, styles.seasonChipTextXp]}>
+                        ×{formatMultiplier(season.eventMultiplier)}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </View>
+          )}
         </View>
-      )}
+      </ScrollView>
 
       {error && (
         <View style={styles.errorBanner} accessibilityRole="alert">
-          <Ionicons name="alert-circle" size={ICON_SIZE_SMALL} color={colors.danger} />
+          <Icon name="alert" size={ICON_SIZE_SMALL} color={colors.danger} />
           <Text style={styles.errorBannerText}>{error}</Text>
         </View>
       )}
@@ -389,8 +486,13 @@ export default function TimerScreen(): React.JSX.Element {
           onDismiss={dismissReward}
         />
       )}
-    </SafeAreaView>
+    </View>
   );
+}
+
+/** "1.5" but "2" — a trailing ".0" on a multiplier reads as precision it does not have. */
+function formatMultiplier(value: number): string {
+  return value.toFixed(value % 1 === 0 ? 0 : 1);
 }
 
 function describeError(error: unknown): string {
@@ -403,9 +505,10 @@ function describeError(error: unknown): string {
 /** Disc sizes. Big enough that the icon is the row's landmark, not a decoration. */
 const HABIT_DISC = 44;
 const SESSION_DISC = 56;
+const SEASON_DISC = 44;
 const TARGET_TRACK = 10;
 /** A comfortable thumb target for the screen's primary action. */
-const HABIT_ROW_HEIGHT = 76;
+const HABIT_ROW_HEIGHT = 64;
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
@@ -418,16 +521,25 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
 
-  idlePane: { flex: 1, padding: spacing.lg, gap: spacing.xs },
-  title: { ...type.title, color: colors.text },
-  subtitle: { ...type.body, color: colors.textMuted, marginBottom: spacing.md },
+  scroll: { paddingBottom: spacing.xxl },
+  /** Pulled up so the sheet overlaps the hero's rounded corner. */
+  pane: { padding: spacing.md, gap: spacing.md, marginTop: -spacing.md },
+
+  sheet: { ...cardStyle, paddingVertical: spacing.sm, gap: 0 },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.xs,
+    paddingBottom: spacing.sm,
+  },
+  sheetTitle: { ...type.title, color: colors.text },
+  sheetCount: { ...type.heading, color: colors.textMuted, fontVariant: ['tabular-nums'] },
+
   /** Section header: muted and wide-tracked, so it labels without competing. */
-  overline: { ...type.overline, color: colors.textMuted, marginBottom: spacing.sm },
   overlineCentered: { ...type.overline, color: colors.textMuted, textAlign: 'center' },
 
-  list: { gap: spacing.sm, paddingBottom: spacing.xl },
-
-  empty: { alignItems: 'center', gap: spacing.md, marginTop: spacing.xl },
+  empty: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.lg },
   emptyText: { ...type.body, color: colors.textFaint, textAlign: 'center' },
   /** A tinted disc behind a state icon, so an empty or broken screen still has an anchor. */
   stateBadge: {
@@ -439,22 +551,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  habitSlab: {
-    backgroundColor: colors.borderStrong,
-    borderRadius: radius.lg,
-    paddingBottom: depth.card,
-  },
-  habitFace: {
-    ...cardStyle,
+  habitRow: { borderRadius: radius.md },
+  /** A hairline between rows, so the sheet reads as a list and not as one block. */
+  habitRowDivided: { borderTopWidth: 1, borderTopColor: colors.border },
+  habitRowInner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
     minHeight: HABIT_ROW_HEIGHT,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radius.md,
   },
-  habitFacePressed: {
-    backgroundColor: colors.surfaceRaised,
-    transform: [{ translateY: depth.card }],
-  },
+  habitRowPressed: { backgroundColor: colors.surfaceRaised },
   inert: { opacity: 0.5 },
 
   habitIcon: {
@@ -478,9 +586,51 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
     borderRadius: radius.pill,
-    backgroundColor: colors.warningSoft,
+    backgroundColor: colors.fireSoft,
   },
-  streakText: { ...type.caption, color: colors.warningDark },
+  streakText: { ...type.caption, color: colors.fireDark },
+
+  /** The one dark surface on this screen. Framed, so it reads as carved rather than flat. */
+  seasonPanel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.stone,
+    borderRadius: radius.lg,
+    borderWidth: 2,
+    borderColor: colors.frame,
+    padding: spacing.md,
+  },
+  seasonDisc: {
+    width: SEASON_DISC,
+    height: SEASON_DISC,
+    borderRadius: radius.md,
+    backgroundColor: colors.frame,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  seasonText: { flex: 1, gap: 2 },
+  seasonLabel: { ...type.overline, color: colors.textOnDarkMuted },
+  seasonName: { ...type.heading, color: colors.textOnDark },
+  seasonBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+    flexWrap: 'wrap',
+  },
+  seasonChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    backgroundColor: colors.frame,
+  },
+  seasonChipXp: { backgroundColor: colors.xp },
+  seasonChipText: { ...type.caption, color: colors.textOnDarkMuted, flexShrink: 1 },
+  seasonChipTextXp: { color: colors.textOnAccent },
 
   runningPane: { flex: 1, justifyContent: 'center', padding: spacing.lg, gap: spacing.lg },
   runningCard: {
@@ -514,7 +664,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   statusGood: { backgroundColor: colors.successSoft },
-  statusWarn: { backgroundColor: colors.warningSoft },
+  statusWarn: { backgroundColor: colors.fireSoft },
   statusText: { ...type.caption },
 
   actions: { gap: spacing.sm },

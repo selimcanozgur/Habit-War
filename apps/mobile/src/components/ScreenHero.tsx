@@ -11,7 +11,7 @@
  * on a scene rather than two stacked rectangles.
  */
 
-import { ImageBackground, StyleSheet, Text, View, type ImageSourcePropType } from 'react-native';
+import { Image, StyleSheet, Text, View, type ImageSourcePropType } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -45,6 +45,14 @@ export interface ScreenHeroProps {
   readonly action?: React.ReactNode;
   /** Extra content inside the hero, below the title. */
   readonly children?: React.ReactNode;
+  /**
+   * Lets the hero grow past `heroHeight` when its children need the room.
+   *
+   * A fixed height is right for a title and nothing else, and wrong for the profile,
+   * where the whole character card lives inside the hero: at a fixed height the
+   * children pushed the title off the top of the image and it rendered clipped.
+   */
+  readonly grows?: boolean;
 }
 
 export function ScreenHero({
@@ -54,15 +62,30 @@ export function ScreenHero({
   icon,
   action,
   children,
+  grows = false,
 }: ScreenHeroProps): React.JSX.Element {
   const insets = useSafeAreaInsets();
 
   return (
-    <ImageBackground
-      source={HERO_IMAGES[image]}
-      style={[styles.hero, { paddingTop: insets.top + spacing.sm }]}
-      imageStyle={styles.image}
+    <View
+      style={[
+        styles.hero,
+        // minHeight lets content set the size; height pins it. A hero holding only a
+        // title wants the pin, one holding a character card wants the floor.
+        grows ? { minHeight: heroHeight } : { height: heroHeight },
+        { paddingTop: insets.top + spacing.sm },
+      ]}
     >
+      {/*
+        The illustration is positioned behind the content rather than being the
+        container's background. An ImageBackground takes part in layout and adopts its
+        source's intrinsic box when either axis is unpinned — which is how the profile
+        hero ended up 920x613, painting the artwork two thirds of the way down the page
+        behind the cards. Taking it out of the flow means the hero is sized by its
+        content and its content alone.
+      */}
+      <Image source={HERO_IMAGES[image]} style={styles.image} resizeMode="cover" />
+
       {/*
         Bottom-up scrim. Without it the title's legibility depends on whichever part
         of the illustration happens to sit behind it.
@@ -92,19 +115,23 @@ export function ScreenHero({
 
         {children}
       </View>
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   hero: {
-    height: heroHeight,
+    overflow: 'hidden',
     justifyContent: 'flex-end',
+    // Shows through until the illustration decodes, and behind its rounded corners.
     backgroundColor: colors.panel,
   },
   image: {
-    // The content below overlaps this corner radius, which is what makes the page
-    // read as laid over the scene rather than butted against it.
+    ...StyleSheet.absoluteFill,
+    width: '100%',
+    height: '100%',
+    // The content below overlaps this radius, which is what makes the page read as
+    // laid over the scene rather than butted against it.
     borderBottomLeftRadius: radius.lg,
     borderBottomRightRadius: radius.lg,
   },

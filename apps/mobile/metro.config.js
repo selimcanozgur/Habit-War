@@ -23,7 +23,10 @@ config.resolver.disableHierarchicalLookup = true;
 // Import .svg files as React components. The icon set is authored as real SVG files
 // so it can be opened in any editor, and this is what lets the app consume them
 // without a parallel hand-written copy of every glyph.
-config.transformer.babelTransformerPath = require.resolve('react-native-svg-transformer');
+// The '/expo' entry, not the package root: the root transformer only covers the
+// native platforms, so on web the .svg resolved to a module object and every Icon
+// threw "Element type is invalid" at render.
+config.transformer.babelTransformerPath = require.resolve('react-native-svg-transformer/expo');
 config.resolver.assetExts = config.resolver.assetExts.filter((ext) => ext !== 'svg');
 config.resolver.sourceExts = [...config.resolver.sourceExts, 'svg'];
 

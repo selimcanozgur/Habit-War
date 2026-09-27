@@ -15,12 +15,10 @@
  * the friends leaderboard, active duels, and the form to start one.
  */
 
-import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 
 import { ApiError } from '../src/api/client';
@@ -42,6 +40,8 @@ import {
 } from '../src/api/social';
 import { Button, ChipButton, cardStyle } from '../src/components/Button';
 import { DuelCard } from '../src/components/DuelCard';
+import { Icon, type IconName } from '../src/components/Icon';
+import { ScreenHero } from '../src/components/ScreenHero';
 import { UserRow } from '../src/components/UserRow';
 import { colors, radius, spacing, type } from '../src/theme';
 
@@ -61,8 +61,13 @@ const CATEGORY_OPTIONS: readonly Category[] = [
 ];
 
 const ICON_SIZE = 20;
-/** Medals for the top three. Rank 4 and below get their number, not a metal. */
-const PODIUM_COLORS: readonly string[] = [colors.warning, colors.textMuted, colors.accentBright];
+/** The crossed swords in the season banner, sized as an emblem rather than a label. */
+const SEASON_EMBLEM_SIZE = 52;
+/**
+ * Medals for the top three — gold, silver, bronze. Rank 4 and below get their
+ * number on a plain parchment disc, not a metal they did not earn.
+ */
+const PODIUM_COLORS: readonly string[] = [colors.gold, colors.textFaint, colors.fireDark];
 
 /** Duels a user should still be looking at. Finished and refused ones fall away. */
 function isLiveDuel(challenge: Challenge): boolean {
@@ -154,32 +159,50 @@ export default function BattleScreen(): React.JSX.Element {
   const canSubmit = opponent !== null && category !== null && !busy;
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.titleRow}>
-          <Ionicons name="flame" size={28} color={colors.warning} />
-          <Text style={styles.title}>Savaş</Text>
-        </View>
+    <View style={styles.screen}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <ScreenHero image="battle" title="Savaş" icon="flame-filled" />
 
+        <View style={styles.body}>
         {/* Season banner. Hidden entirely when there is no season — an empty banner
-            is worse than no banner. The soft primary ground is what marks it as the
-            one piece of standing context on the screen rather than another card. */}
+            is worse than no banner. Stone framed in wood rather than parchment: the
+            season is the world's standing state, not a record of the user's own. */}
         {season !== null && (
           <Animated.View entering={FadeIn.duration(300)} style={styles.seasonBanner}>
-            <View style={styles.seasonHeader}>
-              <Ionicons name="calendar" size={ICON_SIZE} color={colors.accent} />
+            <View style={styles.seasonText}>
               <Text style={styles.seasonLabel}>Aktif sezon</Text>
-            </View>
-            <Text style={styles.seasonName}>{season.name}</Text>
-            {season.theme !== null && <Text style={styles.seasonTheme}>{season.theme}</Text>}
-            {season.eventMultiplier !== null && (
-              <View style={styles.multiplierPill}>
-                <Ionicons name="flash" size={ICON_SIZE - 4} color={colors.textOnAccent} />
-                <Text style={styles.multiplierText}>
-                  Etkinlik çarpanı ×{season.eventMultiplier.toFixed(season.eventMultiplier % 1 === 0 ? 0 : 1)}
-                </Text>
+              <Text style={styles.seasonName} numberOfLines={2}>
+                {season.name}
+              </Text>
+
+              <View style={styles.seasonPills}>
+                {season.theme !== null && (
+                  <View style={styles.themePill}>
+                    <Icon name="star-filled" size={ICON_SIZE - 6} color={colors.gold} />
+                    <Text style={styles.themePillText} numberOfLines={1}>
+                      {season.theme}
+                    </Text>
+                  </View>
+                )}
+                {season.eventMultiplier !== null && (
+                  <View style={styles.multiplierPill}>
+                    <Icon name="star-filled" size={ICON_SIZE - 6} color={colors.textOnAccent} />
+                    <Text style={styles.multiplierText}>
+                      Etkinlik çarpanı ×
+                      {season.eventMultiplier.toFixed(season.eventMultiplier % 1 === 0 ? 0 : 1)}
+                    </Text>
+                  </View>
+                )}
               </View>
-            )}
+            </View>
+
+            {/* The crossed swords are the banner's emblem, so they are sized as an
+                object rather than as a label's icon. */}
+            <Icon name="swords" size={SEASON_EMBLEM_SIZE} color={colors.gold} />
           </Animated.View>
         )}
 
@@ -196,7 +219,7 @@ export default function BattleScreen(): React.JSX.Element {
             />
           ) : entries.length === 0 ? (
             <EmptyCard
-              icon="podium-outline"
+              icon="trophy"
               title="Sıralama için arkadaş gerek"
               body="Arkadaş ekledikçe haftalık XP sıralaman burada oluşur. Sıralama her pazartesi sıfırlanır."
             />
@@ -233,7 +256,7 @@ export default function BattleScreen(): React.JSX.Element {
             />
           ) : duels.length === 0 ? (
             <EmptyCard
-              icon="flash-outline"
+              icon="swords"
               title="Aktif düello yok"
               body="Bir arkadaşını seç, kategori ve süre belirle; kim daha çok XP toplarsa kazanır."
             />
@@ -255,6 +278,9 @@ export default function BattleScreen(): React.JSX.Element {
         {!composerOpen ? (
           <Button
             label="Düello başlat"
+            // Violet: starting a duel spends progression rather than merely
+            // navigating, which is what this tone means everywhere else.
+            tone="xp"
             onPress={() => {
               // The composer's own open animation carries no feedback of its own, so
               // the tap is acknowledged here as well as by the button's press.
@@ -274,7 +300,9 @@ export default function BattleScreen(): React.JSX.Element {
                 accessibilityLabel="Düello oluşturmayı kapat"
                 hitSlop={spacing.sm}
               >
-                <Ionicons name="close" size={ICON_SIZE + 2} color={colors.textMuted} />
+                {/* The icon set has no cross; `minus` is the nearest neutral
+                    dismissal mark and the label carries the meaning. */}
+                <Icon name="minus" size={ICON_SIZE + 2} color={colors.textMuted} />
               </Pressable>
             </View>
 
@@ -363,8 +391,9 @@ export default function BattleScreen(): React.JSX.Element {
             )}
           </Animated.View>
         )}
+        </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -383,12 +412,21 @@ function RankBadge({
   readonly highlighted: boolean;
 }): React.JSX.Element {
   const podium = PODIUM_COLORS[rank - 1];
-  const fill = highlighted ? colors.accent : (podium ?? colors.surfaceSunken);
-  const onPodium = highlighted || podium !== undefined;
+  const fill = podium ?? colors.surfaceSunken;
+  // A metal disc carries white; a plain parchment one needs ink.
+  const onMetal = podium !== undefined;
 
   return (
-    <View style={[styles.rankBadge, { backgroundColor: fill }]}>
-      <Text style={[styles.rankText, onPodium ? styles.rankTextOnFill : null]}>{rank}</Text>
+    <View
+      style={[
+        styles.rankBadge,
+        { backgroundColor: fill },
+        // The viewer's own medallion keeps its metal but gains a ring, so "you" is
+        // legible without overwriting the rank it earned.
+        highlighted && styles.rankBadgeSelf,
+      ]}
+    >
+      <Text style={[styles.rankText, onMetal ? styles.rankTextOnFill : null]}>{rank}</Text>
     </View>
   );
 }
@@ -428,9 +466,9 @@ function Notice({
       accessibilityLabel="Bildirimi kapat"
       style={styles.notice}
     >
-      <Ionicons name="information-circle" size={ICON_SIZE} color={colors.accent} />
+      <Icon name="info" size={ICON_SIZE} color={colors.accentDark} />
       <Text style={styles.noticeText}>{message}</Text>
-      <Ionicons name="close" size={ICON_SIZE} color={colors.textMuted} />
+      <Icon name="minus" size={ICON_SIZE} color={colors.textMuted} />
     </Pressable>
   );
 }
@@ -440,13 +478,13 @@ function EmptyCard({
   title,
   body,
 }: {
-  readonly icon: React.ComponentProps<typeof Ionicons>['name'];
+  readonly icon: IconName;
   readonly title: string;
   readonly body: string;
 }): React.JSX.Element {
   return (
     <View style={styles.emptyCard}>
-      <Ionicons name={icon} size={ICON_SIZE + 4} color={colors.textFaint} />
+      <Icon name={icon} size={ICON_SIZE + 4} color={colors.textFaint} />
       <Text style={styles.emptyTitle}>{title}</Text>
       <Text style={styles.emptyBody}>{body}</Text>
     </View>
@@ -463,7 +501,7 @@ function ErrorBlock({
   return (
     <View style={styles.errorBlock}>
       <View style={styles.errorRow}>
-        <Ionicons name="alert-circle" size={ICON_SIZE} color={colors.danger} />
+        <Icon name="alert" size={ICON_SIZE} color={colors.danger} />
         <Text style={styles.errorText}>{message}</Text>
       </View>
       <Button
@@ -487,32 +525,44 @@ function describeError(error: unknown): string {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.lg, gap: spacing.md, paddingBottom: spacing.xxl },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  title: { ...type.title, color: colors.text },
+  // The hero runs edge to edge, so only the content below it is inset.
+  content: { paddingBottom: spacing.xxl },
+  body: { padding: spacing.md, gap: spacing.md },
 
   seasonBanner: {
-    ...cardStyle,
-    backgroundColor: colors.accentSoft,
-    borderColor: colors.accent,
-    gap: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.stone,
+    borderWidth: 2,
+    borderColor: colors.frame,
   },
-  seasonHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  seasonLabel: { ...type.overline, color: colors.accentDark, textTransform: 'uppercase' },
-  seasonName: { ...type.heading, color: colors.text },
-  seasonTheme: { ...type.body, color: colors.textMuted },
-  multiplierPill: {
-    alignSelf: 'flex-start',
+  seasonText: { flex: 1, gap: spacing.xs },
+  seasonLabel: { ...type.overline, color: colors.textOnDarkMuted, textTransform: 'uppercase' },
+  seasonName: { ...type.title, color: colors.textOnDark },
+  seasonPills: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs },
+  themePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    marginTop: spacing.xs,
-    paddingHorizontal: spacing.sm + 2,
+    paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
-    backgroundColor: colors.accent,
+    backgroundColor: colors.frame,
   },
-  multiplierText: { ...type.label, color: colors.textOnAccent },
+  themePillText: { ...type.caption, color: colors.textOnDark },
+  multiplierPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.pill,
+    backgroundColor: colors.xp,
+  },
+  multiplierText: { ...type.caption, color: colors.textOnAccent },
 
   notice: {
     flexDirection: 'row',
@@ -526,10 +576,11 @@ const styles = StyleSheet.create({
   },
   noticeText: { ...type.caption, color: colors.accentDark, flex: 1 },
 
-  section: { gap: spacing.sm, marginTop: spacing.sm },
+  section: { gap: spacing.sm },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  sectionTitle: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase' },
-  sectionSubtitle: { ...type.caption, color: colors.textFaint },
+  // Section headers sit on the dark page ground, not on a card.
+  sectionTitle: { ...type.heading, color: colors.textOnDark },
+  sectionSubtitle: { ...type.caption, color: colors.textOnDarkMuted },
   sectionBody: { gap: spacing.sm },
 
   inlineLoader: { marginTop: spacing.lg },
@@ -540,7 +591,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.border,
   },
+  rankBadgeSelf: { borderColor: colors.goldDark },
   rankText: { ...type.label, color: colors.textMuted, fontVariant: ['tabular-nums'] },
   rankTextOnFill: { color: colors.textOnAccent },
 
@@ -555,7 +609,12 @@ const styles = StyleSheet.create({
   composer: { ...cardStyle, gap: spacing.sm },
   composerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   composerTitle: { ...type.heading, color: colors.text },
-  fieldLabel: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase', marginTop: spacing.sm },
+  fieldLabel: {
+    ...type.overline,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    marginTop: spacing.sm,
+  },
 
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
 
@@ -563,7 +622,9 @@ const styles = StyleSheet.create({
   submitButton: { marginTop: spacing.sm },
   hint: { ...type.caption, color: colors.textFaint, textAlign: 'center' },
 
-  errorBlock: { gap: spacing.sm, alignItems: 'flex-start', paddingVertical: spacing.md },
+  // The error sits on the dark page ground, so it takes a parchment card of its own
+  // rather than red ink on stone, which would fail contrast.
+  errorBlock: { ...cardStyle, gap: spacing.sm, alignItems: 'flex-start' },
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   errorText: { ...type.body, color: colors.danger, flex: 1 },
 });

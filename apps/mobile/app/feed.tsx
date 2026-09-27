@@ -18,7 +18,6 @@
  *     counter drifting.
  */
 
-import { Ionicons } from '@expo/vector-icons';
 import {
   useInfiniteQuery,
   useMutation,
@@ -39,7 +38,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ApiError } from '../src/api/client';
 import {
@@ -56,10 +54,10 @@ import {
 } from '../src/api/feed';
 import { Button } from '../src/components/Button';
 import { ComposePost } from '../src/components/ComposePost';
+import { Icon, type IconName } from '../src/components/Icon';
 import { PostCard } from '../src/components/PostCard';
+import { ScreenHero } from '../src/components/ScreenHero';
 import { colors, radius, spacing, type } from '../src/theme';
-
-type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
 type FeedQueryData = InfiniteData<FeedPage, string | null>;
 
@@ -72,9 +70,9 @@ const ICON_SIZE_LARGE = 24;
 const SCOPES: readonly {
   readonly value: FeedScope;
   readonly label: string;
-  readonly icon: IoniconName;
+  readonly icon: IconName;
 }[] = [
-  { value: 'friends', label: 'Arkadaşlar', icon: 'people' },
+  { value: 'friends', label: 'Arkadaşlar', icon: 'friends' },
   { value: 'discover', label: 'Keşfet', icon: 'compass' },
 ];
 
@@ -241,14 +239,18 @@ export default function FeedScreen(): React.JSX.Element {
   );
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
+    <View style={styles.screen}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.header}>
-          <Text style={styles.title}>Akış</Text>
-
+        {/*
+          The segment lives inside the hero, so the scope is stated where the screen
+          names itself rather than in a strip of its own. The track is stone because
+          it sits on the illustration; a parchment track there would read as a card
+          floating on the art.
+        */}
+        <ScreenHero image="feed" title="Akış">
           {/*
             Hand-rolled rather than built from `Button`: these are tabs, and the
             `tablist`/`tab` roles below are what a screen reader needs to announce
@@ -270,10 +272,10 @@ export default function FeedScreen(): React.JSX.Element {
                   accessibilityState={{ selected: active }}
                   accessibilityLabel={`${item.label} akışı`}
                 >
-                  <Ionicons
+                  <Icon
                     name={item.icon}
                     size={ICON_SIZE}
-                    color={active ? colors.textOnAccent : colors.textMuted}
+                    color={active ? colors.textOnAccent : colors.textOnDarkMuted}
                   />
                   <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
                     {item.label}
@@ -282,7 +284,7 @@ export default function FeedScreen(): React.JSX.Element {
               );
             })}
           </View>
-        </View>
+        </ScreenHero>
 
         {feedQuery.isPending ? (
           <View style={styles.centered}>
@@ -290,7 +292,7 @@ export default function FeedScreen(): React.JSX.Element {
           </View>
         ) : feedQuery.isError ? (
           <View style={styles.centered}>
-            <StateBadge icon="cloud-offline" tint={colors.danger} />
+            <StateBadge icon="cloud-off" tint={colors.danger} />
             <Text style={styles.stateTitle}>Akış yüklenemedi</Text>
             <Text style={styles.stateBody}>{describeError(feedQuery.error)}</Text>
             <Button
@@ -333,7 +335,7 @@ export default function FeedScreen(): React.JSX.Element {
           />
         )}
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -347,12 +349,12 @@ function StateBadge({
   icon,
   tint,
 }: {
-  readonly icon: IoniconName;
+  readonly icon: IconName;
   readonly tint: string;
 }): React.JSX.Element {
   return (
     <View style={styles.stateBadge}>
-      <Ionicons name={icon} size={ICON_SIZE_LARGE} color={tint} />
+      <Icon name={icon} size={ICON_SIZE_LARGE} color={tint} />
     </View>
   );
 }
@@ -374,7 +376,7 @@ function EmptyFeed({
   if (scope === 'friends') {
     return (
       <View style={styles.empty}>
-        <StateBadge icon="person-add" tint={colors.accent} />
+        <StateBadge icon="friends" tint={colors.accent} />
         <Text style={styles.stateTitle}>Henüz arkadaşın yok</Text>
         <Text style={styles.stateBody}>
           Akış, arkadaşlarının seansları ve paylaşımlarıyla dolar. Birini ekle ya da
@@ -395,7 +397,7 @@ function EmptyFeed({
 
   return (
     <View style={styles.empty}>
-      <StateBadge icon="compass" tint={colors.info} />
+      <StateBadge icon="compass" tint={colors.accent} />
       <Text style={styles.stateTitle}>Burası şimdilik sessiz</Text>
       <Text style={styles.stateBody}>
         Keşfet’te gösterilecek yeni bir şey yok. İlk paylaşımı sen yapabilirsin —
@@ -418,17 +420,18 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   flex: { flex: 1 },
 
-  header: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.md },
-  title: { ...type.title, color: colors.text },
-
   /**
    * A recessed track with the selected tab raised out of it. The sunken fill is what
    * makes the unselected tab read as unselected without needing a border on each one.
+   * XP purple for the selection: switching scope is a move through the world, and
+   * purple is what this language reserves for that.
    */
   segment: {
     flexDirection: 'row',
-    backgroundColor: colors.surfaceSunken,
+    backgroundColor: colors.stone,
     borderRadius: radius.pill,
+    borderWidth: 2,
+    borderColor: colors.frame,
     padding: spacing.xs,
     gap: spacing.xs,
   },
@@ -441,11 +444,17 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     borderRadius: radius.pill,
   },
-  segmentItemActive: { backgroundColor: colors.accent },
-  segmentText: { ...type.label, color: colors.textMuted },
+  segmentItemActive: { backgroundColor: colors.xp },
+  segmentText: { ...type.label, color: colors.textOnDarkMuted },
   segmentTextActive: { color: colors.textOnAccent },
 
-  list: { padding: spacing.lg, gap: spacing.md, paddingBottom: spacing.xxl },
+  /** Pulled up so the first card overlaps the hero's rounded corner. */
+  list: {
+    padding: spacing.md,
+    gap: spacing.md,
+    paddingBottom: spacing.xxl,
+    marginTop: -spacing.md,
+  },
   footerSpinner: { marginVertical: spacing.lg },
 
   centered: {

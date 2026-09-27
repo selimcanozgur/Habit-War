@@ -9,7 +9,6 @@
  * takes whatever headers it is handed.
  */
 
-import { Ionicons } from '@expo/vector-icons';
 import {
   Nunito_400Regular,
   Nunito_600SemiBold,
@@ -27,6 +26,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ApiError, setAuthHeaderProvider } from '../src/api/client';
+import { Icon, type IconName } from '../src/components/Icon';
 import { colors } from '../src/theme';
 
 /** Dev-mode identity. Replaced by a Clerk session token. */
@@ -38,16 +38,15 @@ setAuthHeaderProvider(async () => {
   return headers;
 });
 
-type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
-
 /**
  * Tab icon.
  *
  * Filled when active, outlined when not — the convention every iOS and Android user
- * already reads without being taught, and the reason the active tab does not need to
- * rely on colour alone.
+ * already reads without being taught, and the reason the active tab does not have to
+ * rely on colour alone. Both variants come from the same generated set, so they share
+ * a grid and a stroke weight.
  */
-function tabIcon(active: IoniconName, inactive: IoniconName) {
+function tabIcon(name: IconName, activeName: IconName) {
   return function TabIcon({
     color,
     focused,
@@ -55,7 +54,7 @@ function tabIcon(active: IoniconName, inactive: IoniconName) {
     color: ColorValue;
     focused: boolean;
   }): React.JSX.Element {
-    return <Ionicons name={focused ? active : inactive} size={24} color={color as string} />;
+    return <Icon name={focused ? activeName : name} size={24} color={color as string} />;
   };
 }
 
@@ -110,14 +109,16 @@ export default function RootLayout(): React.JSX.Element {
       <View style={styles.frame}>
         <SafeAreaProvider>
           <QueryClientProvider client={queryClient}>
-            <StatusBar style="dark" />
+            <StatusBar style="light" />
             <Tabs
             screenOptions={{
               headerShown: false,
               sceneStyle: { backgroundColor: colors.bg },
               tabBarStyle: {
-                backgroundColor: colors.surface,
-                borderTopColor: colors.border,
+                // Dark stone, per the design: the tab bar is the frame around the
+                // parchment pages rather than another page.
+                backgroundColor: colors.stone,
+                borderTopColor: colors.frame,
                 borderTopWidth: 2,
                 // Tall enough for a 24px icon, its label, and breathing room above
                 // the home indicator. At 62 the descenders in "Bugün" were clipped.
@@ -125,8 +126,8 @@ export default function RootLayout(): React.JSX.Element {
                 paddingTop: 8,
                 paddingBottom: 12,
               },
-              tabBarActiveTintColor: colors.accent,
-              tabBarInactiveTintColor: colors.textFaint,
+              tabBarActiveTintColor: colors.gold,
+              tabBarInactiveTintColor: colors.textOnDarkMuted,
               tabBarLabelStyle: {
                 fontFamily: 'Nunito_700Bold',
                 fontSize: 11,
@@ -140,26 +141,26 @@ export default function RootLayout(): React.JSX.Element {
             {/* Order follows the spec's information architecture (§9). */}
             <Tabs.Screen
               name="index"
-              options={{ title: 'Bugün', tabBarIcon: tabIcon('flash', 'flash-outline') }}
+              options={{ title: 'Bugün', tabBarIcon: tabIcon('today', 'today-filled') }}
             />
             <Tabs.Screen
               name="feed"
-              options={{ title: 'Akış', tabBarIcon: tabIcon('people', 'people-outline') }}
+              options={{ title: 'Akış', tabBarIcon: tabIcon('feed', 'feed-filled') }}
             />
             <Tabs.Screen
               name="battle"
-              options={{ title: 'Savaş', tabBarIcon: tabIcon('flame', 'flame-outline') }}
+              options={{ title: 'Savaş', tabBarIcon: tabIcon('battle', 'battle-filled') }}
             />
             <Tabs.Screen
               name="friends"
               options={{
                 title: 'Arkadaşlar',
-                tabBarIcon: tabIcon('person-add', 'person-add-outline'),
+                tabBarIcon: tabIcon('friends', 'friends-filled'),
               }}
             />
             <Tabs.Screen
               name="profile"
-              options={{ title: 'Profil', tabBarIcon: tabIcon('shield', 'shield-outline') }}
+              options={{ title: 'Profil', tabBarIcon: tabIcon('profile', 'profile-filled') }}
             />
             </Tabs>
           </QueryClientProvider>
@@ -175,7 +176,7 @@ const PHONE_FRAME_WIDTH = 460;
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: colors.surfaceSunken,
+    backgroundColor: colors.stone,
     alignItems: 'center',
   },
   frame: {

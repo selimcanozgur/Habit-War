@@ -7,17 +7,15 @@
  * do. So the order is inverted — the search box sits at the top, always, and the
  * empty list is a set of instructions rather than a shrug.
  *
- * Because that box is the screen's real job, it is styled as the loudest object on
- * it: full width, a heavy outline, a magnifier inside it, and a border that turns
- * primary the moment there is anything to search for. Anything quieter and the cold
- * start fails silently.
+ * Because that box is the screen's real job, it lives inside the hero itself — a
+ * parchment field laid over the illustration, where it is the first thing the eye
+ * lands on after the title. Anything quieter and the cold start fails silently.
  *
  * Search is debounced because the endpoint is hit on every keystroke otherwise,
  * and the in-flight request is aborted when the query moves on, so a slow response
  * for "a" cannot land after the response for "ahm".
  */
 
-import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useState } from 'react';
@@ -30,7 +28,6 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ApiError } from '../src/api/client';
 import {
@@ -47,10 +44,10 @@ import {
   type SocialUser,
 } from '../src/api/social';
 import { Button, ChipButton, cardStyle } from '../src/components/Button';
+import { Icon, type IconName } from '../src/components/Icon';
+import { ScreenHero } from '../src/components/ScreenHero';
 import { UserRow } from '../src/components/UserRow';
 import { colors, radius, spacing, type } from '../src/theme';
-
-type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
 /** Long enough that a normal typist fires one request, short enough to feel live. */
 const SEARCH_DEBOUNCE_MS = 350;
@@ -66,10 +63,10 @@ const SEARCH_ICON_SIZE = 22;
  * off on — a leaderboard, a duel, a streak. Icons rather than bullet characters so
  * the three lines scan as three different rewards.
  */
-const COLD_START_ITEMS: readonly { readonly icon: IoniconName; readonly text: string }[] = [
-  { icon: 'podium', text: 'Haftalık XP sıralamasında arkadaşlarınla yarışırsın.' },
-  { icon: 'flash', text: 'Bir arkadaşını 3–7 günlük düelloya çağırabilirsin.' },
-  { icon: 'flame', text: 'Serileri ve seviyeleri buradan takip edersin.' },
+const COLD_START_ITEMS: readonly { readonly icon: IconName; readonly text: string }[] = [
+  { icon: 'trophy', text: 'Haftalık XP sıralamasında arkadaşlarınla yarışırsın.' },
+  { icon: 'swords', text: 'Bir arkadaşını 3–7 günlük düelloya çağırabilirsin.' },
+  { icon: 'flame-filled', text: 'Serileri ve seviyeleri buradan takip edersin.' },
 ];
 
 export default function FriendsScreen(): React.JSX.Element {
@@ -183,48 +180,50 @@ export default function FriendsScreen(): React.JSX.Element {
   const listsFailed = friendsQuery.isError && requestsQuery.isError;
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
+    <View style={styles.screen}>
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
       >
-        <View style={styles.titleRow}>
-          <Ionicons name="person-add" size={26} color={colors.accent} />
-          <Text style={styles.title}>Arkadaşlar</Text>
-        </View>
-
         {/* Search leads the screen rather than hiding behind a "+" button: for a
-            user with no friends, this input *is* the screen. */}
-        <View style={[styles.searchBox, query.length > 0 && styles.searchBoxActive]}>
-          <Ionicons
-            name="search"
-            size={SEARCH_ICON_SIZE}
-            color={query.length > 0 ? colors.accent : colors.textMuted}
-          />
-          <TextInput
-            style={styles.searchInput}
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Kullanıcı adı ara"
-            placeholderTextColor={colors.textFaint}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="search"
-            accessibilityLabel="Kullanıcı ara"
-          />
-          {query.length > 0 && (
-            <Pressable
-              onPress={() => setQuery('')}
-              accessibilityRole="button"
-              accessibilityLabel="Aramayı temizle"
-              hitSlop={spacing.sm}
-            >
-              <Ionicons name="close-circle" size={SEARCH_ICON_SIZE} color={colors.textFaint} />
-            </Pressable>
-          )}
-        </View>
+            user with no friends, this input *is* the screen, so it sits inside the
+            hero where the eye lands first. */}
+        <ScreenHero image="friends" title="Arkadaşlar" icon="friends">
+          <View style={[styles.searchBox, query.length > 0 && styles.searchBoxActive]}>
+            <Icon
+              name="search"
+              size={SEARCH_ICON_SIZE}
+              color={query.length > 0 ? colors.accent : colors.textMuted}
+            />
+            <TextInput
+              style={styles.searchInput}
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Kullanıcı adı ara…"
+              placeholderTextColor={colors.textFaint}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+              accessibilityLabel="Kullanıcı ara"
+            />
+            {query.length > 0 && (
+              <Pressable
+                onPress={() => setQuery('')}
+                accessibilityRole="button"
+                accessibilityLabel="Aramayı temizle"
+                hitSlop={spacing.sm}
+              >
+                {/* The icon set has no cross; `minus` is the nearest neutral
+                    "clear this" mark, and the label carries the meaning anyway. */}
+                <Icon name="minus" size={SEARCH_ICON_SIZE} color={colors.textFaint} />
+              </Pressable>
+            )}
+          </View>
+        </ScreenHero>
 
+        <View style={styles.body}>
         {notice !== null && <Notice message={notice} onDismiss={() => setNotice(null)} />}
 
         {isSearching ? (
@@ -250,8 +249,8 @@ export default function FriendsScreen(): React.JSX.Element {
                     trailing={
                       alreadyKnown ? (
                         <View style={styles.trailingLabelGroup}>
-                          <Ionicons
-                            name="checkmark-circle"
+                          <Icon
+                            name="check-circle-filled"
                             size={ICON_SIZE}
                             color={colors.success}
                           />
@@ -343,7 +342,11 @@ export default function FriendsScreen(): React.JSX.Element {
                   </Section>
                 )}
 
-                <Section title={friends.length > 0 ? `Arkadaşların (${friends.length})` : 'Arkadaşların'}>
+                <Section
+                  title={
+                    friends.length > 0 ? `Arkadaşlarım (${friends.length})` : 'Arkadaşlarım'
+                  }
+                >
                   {friends.length === 0 ? (
                     <ColdStart hasOutgoing={outgoing.length > 0} />
                   ) : (
@@ -351,6 +354,7 @@ export default function FriendsScreen(): React.JSX.Element {
                       <UserRow
                         key={friend.friendshipId}
                         user={friend.user}
+                        showPresence
                         subtitle={
                           friend.currentStreak > 0
                             ? `${friend.currentStreak} günlük seri`
@@ -364,8 +368,9 @@ export default function FriendsScreen(): React.JSX.Element {
             )}
           </>
         )}
+        </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -392,7 +397,7 @@ function ColdStart({ hasOutgoing }: { readonly hasOutgoing: boolean }): React.JS
       <View style={styles.coldStartList}>
         {COLD_START_ITEMS.map((item) => (
           <View key={item.icon} style={styles.coldStartItem}>
-            <Ionicons name={item.icon} size={ICON_SIZE} color={colors.accent} />
+            <Icon name={item.icon} size={ICON_SIZE} color={colors.accent} />
             <Text style={styles.coldStartItemText}>{item.text}</Text>
           </View>
         ))}
@@ -434,9 +439,9 @@ function Notice({
       accessibilityLabel="Bildirimi kapat"
       style={styles.notice}
     >
-      <Ionicons name="information-circle" size={ICON_SIZE} color={colors.accent} />
+      <Icon name="info" size={ICON_SIZE} color={colors.accentDark} />
       <Text style={styles.noticeText}>{message}</Text>
-      <Ionicons name="close" size={ICON_SIZE} color={colors.textMuted} />
+      <Icon name="minus" size={ICON_SIZE} color={colors.textMuted} />
     </Pressable>
   );
 }
@@ -451,7 +456,7 @@ function ErrorBlock({
   return (
     <View style={styles.errorBlock}>
       <View style={styles.errorRow}>
-        <Ionicons name="alert-circle" size={ICON_SIZE} color={colors.danger} />
+        <Icon name="alert" size={ICON_SIZE} color={colors.danger} />
         <Text style={styles.errorText}>{message}</Text>
       </View>
       <Button
@@ -475,28 +480,27 @@ function describeError(error: unknown): string {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.lg, gap: spacing.md, paddingBottom: spacing.xxl },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  title: { ...type.title, color: colors.text },
+  // The hero runs edge to edge, so only the content below it is inset.
+  content: { paddingBottom: spacing.xxl },
+  body: { padding: spacing.md, gap: spacing.md },
 
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surfaceRaised,
-    // A stronger outline than a card's: this is a control, and it has to look like
-    // the one thing on the screen the user is meant to touch first.
+    borderRadius: radius.md,
+    // Parchment on the illustration: the one thing in the hero meant to be touched.
+    backgroundColor: colors.surface,
     borderWidth: 2,
     borderColor: colors.borderStrong,
   },
   // Turns primary once there is a query, which is the only "active" cue available
   // without tracking focus state and changing behaviour.
-  searchBoxActive: { borderColor: colors.accent, backgroundColor: colors.surface },
-  searchInput: { ...type.body, color: colors.text, flex: 1, paddingVertical: spacing.md },
+  searchBoxActive: { borderColor: colors.accent },
+  searchInput: { ...type.body, color: colors.text, flex: 1, paddingVertical: spacing.sm + 2 },
 
-  hint: { ...type.caption, color: colors.textFaint },
+  hint: { ...type.caption, color: colors.textOnDarkMuted },
   notice: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -509,12 +513,13 @@ const styles = StyleSheet.create({
   },
   noticeText: { ...type.caption, color: colors.accentDark, flex: 1 },
 
-  section: { gap: spacing.sm, marginTop: spacing.sm },
-  sectionTitle: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase' },
+  section: { gap: spacing.sm },
+  // Section headers sit on the dark page ground, not on a card.
+  sectionTitle: { ...type.heading, color: colors.textOnDark },
   sectionBody: { gap: spacing.sm },
 
   inlineLoader: { marginTop: spacing.xl },
-  empty: { ...type.body, color: colors.textFaint, paddingVertical: spacing.md },
+  empty: { ...type.body, color: colors.textOnDarkMuted, paddingVertical: spacing.md },
 
   coldStart: { ...cardStyle, padding: spacing.lg, gap: spacing.sm },
   coldStartTitle: { ...type.heading, color: colors.text },
@@ -527,7 +532,9 @@ const styles = StyleSheet.create({
   trailingLabelGroup: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   trailingLabel: { ...type.caption, color: colors.textMuted },
 
-  errorBlock: { gap: spacing.sm, alignItems: 'flex-start', paddingVertical: spacing.md },
+  // The error sits on the dark page ground, so it takes a parchment card of its own
+  // rather than red ink on stone, which would fail contrast.
+  errorBlock: { ...cardStyle, gap: spacing.sm, alignItems: 'flex-start' },
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   errorText: { ...type.body, color: colors.danger, flex: 1 },
 });
