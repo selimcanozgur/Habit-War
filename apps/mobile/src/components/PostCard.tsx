@@ -56,6 +56,9 @@ const REPORT_REASONS: readonly { readonly code: ReportReason; readonly label: st
 
 /** Footer and overflow icons. Large enough to hit, small enough to stay chrome. */
 const ICON_SIZE = 20;
+
+/** Long enough not to fire while scrolling, short enough to feel deliberate. */
+const LONG_PRESS_MS = 400;
 /** Icons that sit inside a disc or beside caption text. */
 const ICON_SIZE_SMALL = 18;
 const ICON_SIZE_DISC = 22;
@@ -119,47 +122,60 @@ function PostCardImpl({ post, onToggleLike, onReport, onBlock }: PostCardProps):
 
   return (
     <Animated.View style={[styles.card, celebration && styles.cardCelebration]}>
-      {/* Long-press anywhere on the body is the second route to moderation. */}
+      {/*
+        The long-press target deliberately does NOT wrap the whole card.
+        react-native-web renders every Pressable as a <button>, and HTML forbids a
+        button inside a button — nesting the menu and like controls under a card-wide
+        Pressable produced a hydration error on web and an ambiguous hit target
+        everywhere. So the long-press covers exactly the inert regions: the author
+        block and the post body. The menu and like buttons are siblings.
+      */}
+      <View style={styles.header}>
+        {post.author.avatarUrl ? (
+          <Image source={{ uri: post.author.avatarUrl }} style={styles.avatar} />
+        ) : (
+          <View style={[styles.avatar, styles.avatarFallback]}>
+            <Text style={styles.avatarInitial}>{initial}</Text>
+          </View>
+        )}
+
+        <Pressable
+          style={styles.headerText}
+          onLongPress={toggleMenu}
+          delayLongPress={LONG_PRESS_MS}
+          accessibilityRole="button"
+          accessibilityLabel={`${post.author.displayName} gönderisi. Seçenekler için uzun bas.`}
+        >
+          <View style={styles.nameRow}>
+            <Text style={styles.displayName} numberOfLines={1}>
+              {post.author.displayName}
+            </Text>
+            <View style={styles.levelBadge}>
+              <Text style={styles.levelBadgeText}>Sv {post.author.level}</Text>
+            </View>
+          </View>
+          <Text style={styles.meta} numberOfLines={1}>
+            @{post.author.username} · {formatRelativeTime(post.createdAt)}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={toggleMenu}
+          hitSlop={12}
+          style={styles.menuButton}
+          accessibilityRole="button"
+          accessibilityLabel="Gönderi seçenekleri"
+        >
+          <Ionicons name="ellipsis-horizontal" size={ICON_SIZE} color={colors.textMuted} />
+        </Pressable>
+      </View>
+
       <Pressable
         onLongPress={toggleMenu}
-        delayLongPress={400}
+        delayLongPress={LONG_PRESS_MS}
         accessibilityRole="button"
-        accessibilityLabel={`${post.author.displayName} gönderisi. Seçenekler için uzun bas.`}
+        accessibilityLabel="Gönderi içeriği. Seçenekler için uzun bas."
       >
-        <View style={styles.header}>
-          {post.author.avatarUrl ? (
-            <Image source={{ uri: post.author.avatarUrl }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, styles.avatarFallback]}>
-              <Text style={styles.avatarInitial}>{initial}</Text>
-            </View>
-          )}
-
-          <View style={styles.headerText}>
-            <View style={styles.nameRow}>
-              <Text style={styles.displayName} numberOfLines={1}>
-                {post.author.displayName}
-              </Text>
-              <View style={styles.levelBadge}>
-                <Text style={styles.levelBadgeText}>Sv {post.author.level}</Text>
-              </View>
-            </View>
-            <Text style={styles.meta} numberOfLines={1}>
-              @{post.author.username} · {formatRelativeTime(post.createdAt)}
-            </Text>
-          </View>
-
-          <Pressable
-            onPress={toggleMenu}
-            hitSlop={12}
-            style={styles.menuButton}
-            accessibilityRole="button"
-            accessibilityLabel="Gönderi seçenekleri"
-          >
-            <Ionicons name="ellipsis-horizontal" size={ICON_SIZE} color={colors.textMuted} />
-          </Pressable>
-        </View>
-
         <PostBody post={post} />
       </Pressable>
 

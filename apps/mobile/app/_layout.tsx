@@ -22,7 +22,7 @@ import Constants from 'expo-constants';
 import { Tabs } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useMemo } from 'react';
-import { ActivityIndicator, View, type ColorValue } from 'react-native';
+import { ActivityIndicator, StyleSheet, View, type ColorValue } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -98,11 +98,20 @@ export default function RootLayout(): React.JSX.Element {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <SafeAreaProvider>
-        <QueryClientProvider client={queryClient}>
-          <StatusBar style="dark" />
-          <Tabs
+    <GestureHandlerRootView style={styles.root}>
+      {/*
+        On the web target the viewport is a desktop window, and every screen here is
+        laid out for a handset — stretched to 1280px the cards become letterboxes and
+        the tab bar spreads its five items across a metre of glass. Capping the frame
+        keeps the web build an honest preview of the phone rather than a broken
+        desktop app. On a real device the cap is wider than the screen, so it does
+        nothing.
+      */}
+      <View style={styles.frame}>
+        <SafeAreaProvider>
+          <QueryClientProvider client={queryClient}>
+            <StatusBar style="dark" />
+            <Tabs
             screenOptions={{
               headerShown: false,
               sceneStyle: { backgroundColor: colors.bg },
@@ -152,9 +161,27 @@ export default function RootLayout(): React.JSX.Element {
               name="profile"
               options={{ title: 'Profil', tabBarIcon: tabIcon('shield', 'shield-outline') }}
             />
-          </Tabs>
-        </QueryClientProvider>
-      </SafeAreaProvider>
+            </Tabs>
+          </QueryClientProvider>
+        </SafeAreaProvider>
+      </View>
     </GestureHandlerRootView>
   );
 }
+
+/** Widest a handset layout should ever be stretched. */
+const PHONE_FRAME_WIDTH = 460;
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: colors.surfaceSunken,
+    alignItems: 'center',
+  },
+  frame: {
+    flex: 1,
+    width: '100%',
+    maxWidth: PHONE_FRAME_WIDTH,
+    backgroundColor: colors.bg,
+  },
+});
