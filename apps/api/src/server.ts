@@ -24,7 +24,10 @@ import { notificationRoutes } from './modules/notifications/routes.js';
 import { profileRoutes } from './modules/profile/routes.js';
 import { safetyRoutes } from './modules/safety/routes.js';
 import { sessionRoutes } from './modules/sessions/routes.js';
-import { clerkWebhookRoutes } from './modules/webhooks/clerk.js';
+import { authRoutes } from './modules/auth/routes.js';
+import { createMailSender } from './modules/auth/mail.js';
+import { appleVerifier, googleVerifier } from './modules/auth/providers.js';
+import { AuthService } from './modules/auth/service.js';
 
 const API_PREFIX = '/v1';
 
@@ -57,6 +60,13 @@ export async function buildServer(
 
   await app.register(healthRoutes);
 
+  /*
+    Auth is registered before every other module because it is the only one whose
+    routes must work without an identity. Its own routes opt into `requireUser`
+    individually rather than through a plugin-wide hook.
+  */
+  await app.register(buildAuthRoutes(app, env), { prefix: API_PREFIX });
+
   // Every module below registers its own requireUser preHandler, so order carries no
   // authorisation meaning — it is grouped by concern for readability only.
   await app.register(habitRoutes, { prefix: API_PREFIX });
@@ -71,16 +81,48 @@ export async function buildServer(
   // Staff-only. Its own preHandler is requireModerator, not requireUser.
   await app.register(moderationRoutes, { prefix: API_PREFIX });
 
-  // Registered only when a signing secret exists. Without one the route could not
-  // verify signatures, and an unverified webhook that writes to the user table is
-  // worse than no webhook at all.
-  if (env.CLERK_WEBHOOK_SIGNING_SECRET) {
-    await app.register(clerkWebhookRoutes, {
-      signingSecret: env.CLERK_WEBHOOK_SIGNING_SECRET,
-    });
-  } else {
-    app.log.warn('CLERK_WEBHOOK_SIGNING_SECRET not set: the Clerk webhook route is disabled');
-  }
-
   return app;
+}
+
+/**
+ * Wires the auth module from configuration.
+ *
+ * A provider with no client ids configured gets no route at all, rather than a route
+ * that always fails: a 404 says "this build has no Google sign-in", while a 401 from
+ * an unconfigured verifier would look like the user's credentials were wrong.
+ */
+function buildAuthRoutes(app: FastifyInstance, env: Env) {
+  const service = new AuthService({
+    prisma: app.prisma,
+    jwtSecret: new TextEncoder().encode(env.AUTH_JWT_SECRET ?? 'dev-secret-not-used-in-dev-mode'),
+    sendMail: createMailSender({
+      apiKey: env.RESEND_API_KEY,
+      from: env.MAIL_FROM,
+      appUrl: env.APP_URL,
+      logger: app.log,
+    }),
+    requireEmailVerification: env.REQUIRE_EMAIL_VERIFICATION,
+  });
+
+  const googleIds = splitIds(env.GOOGLE_CLIENT_IDS);
+  const appleIds = splitIds(env.APPLE_CLIENT_IDS);
+
+  if (googleIds.length === 0) app.log.warn('GOOGLE_CLIENT_IDS not set: Google sign-in is disabled');
+  if (appleIds.length === 0) app.log.warn('APPLE_CLIENT_IDS not set: Apple sign-in is disabled');
+
+  return async (instance: FastifyInstance): Promise<void> => {
+    await authRoutes(instance, {
+      service,
+      verifyGoogle: googleIds.length > 0 ? googleVerifier(googleIds) : null,
+      verifyApple: appleIds.length > 0 ? appleVerifier(appleIds) : null,
+    });
+  };
+}
+
+function splitIds(raw: string | undefined): readonly string[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((id) => id.trim())
+    .filter((id) => id !== '');
 }

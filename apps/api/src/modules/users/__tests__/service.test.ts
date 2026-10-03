@@ -2,12 +2,12 @@ import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  createUser,
   deriveDisplayName,
   deriveUsername,
-  resolveUser,
+  findUserByEmail,
   softDeleteUser,
-  syncUser,
-  type ClerkIdentity,
+  type NewIdentity,
 } from '../service.js';
 
 const prisma = new PrismaClient();
@@ -15,10 +15,9 @@ const prisma = new PrismaClient();
 /** Test rows are namespaced so a failed run cannot poison the seeded developer data. */
 const TEST_PREFIX = 'test_users_';
 
-function identity(overrides: Partial<ClerkIdentity> = {}): ClerkIdentity {
+function identity(overrides: Partial<NewIdentity> = {}): NewIdentity {
   return {
-    clerkId: `${TEST_PREFIX}clerk_1`,
-    email: 'ayse.yilmaz@example.com',
+    email: `${TEST_PREFIX}ayse@example.com`,
     username: null,
     firstName: 'Ayşe',
     lastName: 'Yılmaz',
@@ -28,8 +27,8 @@ function identity(overrides: Partial<ClerkIdentity> = {}): ClerkIdentity {
 }
 
 async function cleanup(): Promise<void> {
-  await prisma.user.deleteMany({ where: { clerkId: { startsWith: TEST_PREFIX } } });
   await prisma.user.deleteMany({ where: { username: { startsWith: TEST_PREFIX } } });
+  await prisma.user.deleteMany({ where: { email: { startsWith: TEST_PREFIX } } });
 }
 
 beforeEach(cleanup);
@@ -39,175 +38,180 @@ afterAll(async () => {
 });
 
 describe('deriveUsername', () => {
-  it('prefers the Clerk username', () => {
-    expect(deriveUsername(identity({ username: 'selimcan' }))).toBe('selimcan');
+  it('prefers the supplied username', () => {
+    expect(deriveUsername(identity({ username: 'AyseY' }))).toBe('aysey');
   });
 
   it('falls back to the email local part', () => {
-    expect(deriveUsername(identity({ username: null }))).toBe('ayse_yilmaz');
+    expect(deriveUsername(identity({ username: null, email: 'burak.demir@example.com' }))).toBe(
+      'burak_demir',
+    );
   });
 
-  it('falls back to the Clerk id when nothing else is usable', () => {
-    const result = deriveUsername(identity({ username: null, email: 'a@b.com', clerkId: 'user_2abcDEFG' }));
-    expect(result).toBe('user_2abcDEFG'.replace(/^user_/, '').slice(0, 8).length > 0 ? 'user_2abcdefg' : result);
+  /**
+   * An address like `x@example.com` has a local part below the length floor, and a
+   * provider may send no username at all. Something legal still has to come out, or
+   * the signup fails for a perfectly valid address.
+   */
+  it('invents a name when nothing supplied is usable', () => {
+    const result = deriveUsername(identity({ username: null, email: 'x@example.com' }));
+    expect(result.length).toBeGreaterThanOrEqual(3);
+    expect(result).toMatch(/^[a-z0-9_]+$/);
   });
 
-  it('normalises characters the product does not allow', () => {
-    expect(deriveUsername(identity({ username: 'Ali..Veli!!' }))).toBe('ali_veli');
-  });
-
-  it('never exceeds the length limit', () => {
-    const long = deriveUsername(identity({ username: 'a'.repeat(200) }));
-    expect(long.length).toBeLessThanOrEqual(20);
-  });
-
-  it('rejects a username that normalises to something too short', () => {
-    // "!!" collapses to nothing, so the email local part wins.
-    expect(deriveUsername(identity({ username: '!!' }))).toBe('ayse_yilmaz');
+  it('strips characters the product does not allow', () => {
+    expect(deriveUsername(identity({ username: 'Ayşe Yılmaz!' }))).toMatch(/^[a-z0-9_]+$/);
   });
 });
 
 describe('deriveDisplayName', () => {
-  it('joins the name parts Clerk has', () => {
+  it('joins the name parts that arrived', () => {
     expect(deriveDisplayName(identity(), 'fallback')).toBe('Ayşe Yılmaz');
   });
 
-  it('uses whichever part exists', () => {
-    expect(deriveDisplayName(identity({ lastName: null }), 'fallback')).toBe('Ayşe');
-  });
-
-  it('falls back to the username when Clerk has no name', () => {
-    expect(deriveDisplayName(identity({ firstName: null, lastName: null }), 'selimcan')).toBe(
-      'selimcan',
-    );
+  /**
+   * Apple sends no name at all after the first authorisation, so this is the normal
+   * path for an Apple account rather than an edge case.
+   */
+  it('falls back to the username when no name arrived', () => {
+    expect(
+      deriveDisplayName(identity({ firstName: null, lastName: null }), `${TEST_PREFIX}x`),
+    ).toBe(`${TEST_PREFIX}x`);
   });
 });
 
-describe('resolveUser', () => {
-  it('provisions a user on their first authenticated request', async () => {
-    const user = await resolveUser(prisma, identity().clerkId, async () => identity());
-
-    expect(user.clerkId).toBe(identity().clerkId);
-    expect(user.username).toBe('ayse_yilmaz');
-    expect(user.displayName).toBe('Ayşe Yılmaz');
-    expect(user.email).toBe('ayse.yilmaz@example.com');
-    expect(user.level).toBe(1);
-    expect(user.cycleXp).toBe(0);
-  });
-
-  it('returns the existing user without calling Clerk again', async () => {
-    const first = await resolveUser(prisma, identity().clerkId, async () => identity());
-
-    let calls = 0;
-    const second = await resolveUser(prisma, identity().clerkId, async () => {
-      calls++;
-      return identity();
+describe('createUser', () => {
+  it('creates an account from an identity', async () => {
+    const user = await createUser(prisma, identity({ username: `${TEST_PREFIX}a` }), {
+      passwordHash: 'digest',
+      emailVerified: false,
     });
 
-    expect(second.id).toBe(first.id);
-    expect(calls).toBe(0);
+    expect(user.username).toBe(`${TEST_PREFIX}a`);
+    expect(user.displayName).toBe('Ayşe Yılmaz');
+    expect(user.passwordHash).toBe('digest');
+    expect(user.emailVerifiedAt).toBeNull();
   });
 
-  it('gives a colliding username a numeric suffix', async () => {
-    const first = await resolveUser(prisma, `${TEST_PREFIX}clerk_a`, async () =>
-      identity({ clerkId: `${TEST_PREFIX}clerk_a`, username: `${TEST_PREFIX}dup` }),
-    );
-    const second = await resolveUser(prisma, `${TEST_PREFIX}clerk_b`, async () =>
-      identity({
-        clerkId: `${TEST_PREFIX}clerk_b`,
-        username: `${TEST_PREFIX}dup`,
-        email: 'other@example.com',
-      }),
+  /** A provider has already verified the address; a second mail would be noise. */
+  it('marks a provider account verified on creation', async () => {
+    const user = await createUser(prisma, identity({ username: `${TEST_PREFIX}b` }), {
+      passwordHash: null,
+      emailVerified: true,
+    });
+
+    expect(user.passwordHash).toBeNull();
+    expect(user.emailVerifiedAt).not.toBeNull();
+  });
+
+  it('suffixes a username that is already taken', async () => {
+    const first = await createUser(prisma, identity({ username: `${TEST_PREFIX}dup` }), {
+      emailVerified: true,
+    });
+    const second = await createUser(
+      prisma,
+      identity({ username: `${TEST_PREFIX}dup`, email: `${TEST_PREFIX}other@example.com` }),
+      { emailVerified: true },
     );
 
-    expect(first.username).toBe(`${TEST_PREFIX}dup`);
     expect(second.username).not.toBe(first.username);
-    expect(second.username).toMatch(/2$/);
-  });
-
-  it('propagates a Clerk lookup failure instead of creating a half-built account', async () => {
-    await expect(
-      resolveUser(prisma, `${TEST_PREFIX}clerk_fail`, async () => {
-        throw new Error('clerk unreachable');
-      }),
-    ).rejects.toThrow('clerk unreachable');
-
-    const created = await prisma.user.findUnique({ where: { clerkId: `${TEST_PREFIX}clerk_fail` } });
-    expect(created).toBeNull();
+    expect(second.username.startsWith(`${TEST_PREFIX}dup`.slice(0, 10))).toBe(true);
   });
 
   /**
-   * Two requests from a brand new user can arrive together, both miss the lookup and
-   * both insert. The loser of that race must read the winner's row, not error.
+   * Addresses are stored lowercased. Without that, `Ali@x.com` and `ali@x.com` would
+   * be two accounts, and the user would be unable to sign in to whichever one they
+   * did not create.
    */
-  it('survives two concurrent first requests', async () => {
-    const clerkId = `${TEST_PREFIX}clerk_race`;
-    const fetcher = async (): Promise<ClerkIdentity> =>
-      identity({ clerkId, email: 'race@example.com', username: `${TEST_PREFIX}race` });
+  it('lowercases the email', async () => {
+    const user = await createUser(
+      prisma,
+      identity({ username: `${TEST_PREFIX}case`, email: `${TEST_PREFIX}MiXeD@Example.COM` }),
+      { emailVerified: true },
+    );
 
-    const [a, b] = await Promise.all([
-      resolveUser(prisma, clerkId, fetcher),
-      resolveUser(prisma, clerkId, fetcher),
-    ]);
-
-    expect(a.id).toBe(b.id);
-    const rows = await prisma.user.findMany({ where: { clerkId } });
-    expect(rows).toHaveLength(1);
+    expect(user.email).toBe(`${TEST_PREFIX}mixed@example.com`);
   });
 });
 
-describe('syncUser', () => {
-  it('updates the fields Clerk owns', async () => {
-    await resolveUser(prisma, identity().clerkId, async () => identity());
-
-    const updated = await syncUser(
+describe('findUserByEmail', () => {
+  it('matches regardless of case', async () => {
+    await createUser(
       prisma,
-      identity({ email: 'yeni@example.com', imageUrl: 'https://img.example.com/b.png' }),
+      identity({ username: `${TEST_PREFIX}find`, email: `${TEST_PREFIX}find@example.com` }),
+      { emailVerified: true },
     );
 
-    expect(updated?.email).toBe('yeni@example.com');
-    expect(updated?.avatarUrl).toBe('https://img.example.com/b.png');
+    const found = await findUserByEmail(prisma, `${TEST_PREFIX}FIND@EXAMPLE.COM`);
+    expect(found?.username).toBe(`${TEST_PREFIX}find`);
   });
 
-  it('leaves the user-editable profile alone', async () => {
-    const created = await resolveUser(prisma, identity().clerkId, async () => identity());
-    await prisma.user.update({
-      where: { id: created.id },
-      data: { displayName: 'Kendi Seçtiğim Ad', username: `${TEST_PREFIX}kendi` },
-    });
+  /** A deleted account must not be findable, or sign-in would resurrect it. */
+  it('ignores deleted accounts', async () => {
+    const user = await createUser(
+      prisma,
+      identity({ username: `${TEST_PREFIX}gone`, email: `${TEST_PREFIX}gone@example.com` }),
+      { emailVerified: true },
+    );
+    await softDeleteUser(prisma, user.id);
 
-    const updated = await syncUser(prisma, identity({ username: 'clerk_tarafindan' }));
-
-    expect(updated?.displayName).toBe('Kendi Seçtiğim Ad');
-    expect(updated?.username).toBe(`${TEST_PREFIX}kendi`);
-  });
-
-  it('is a no-op for a user who has never signed in here', async () => {
-    expect(await syncUser(prisma, identity({ clerkId: `${TEST_PREFIX}unknown` }))).toBeNull();
+    expect(await findUserByEmail(prisma, `${TEST_PREFIX}gone@example.com`)).toBeNull();
   });
 });
 
 describe('softDeleteUser', () => {
-  it('marks the account deleted but keeps the row', async () => {
-    const created = await resolveUser(prisma, identity().clerkId, async () => identity());
+  it('marks the row rather than dropping it', async () => {
+    const user = await createUser(
+      prisma,
+      identity({ username: `${TEST_PREFIX}soft`, email: `${TEST_PREFIX}soft@example.com` }),
+      { emailVerified: true },
+    );
 
-    const deleted = await softDeleteUser(prisma, identity().clerkId);
-    expect(deleted?.deletedAt).toBeInstanceOf(Date);
-
-    // The row survives, because sessions and any XP dispute hang off it.
-    const row = await prisma.user.findUnique({ where: { id: created.id } });
-    expect(row).not.toBeNull();
+    const deleted = await softDeleteUser(prisma, user.id);
+    expect(deleted?.deletedAt).not.toBeNull();
+    expect(await prisma.user.findUnique({ where: { id: user.id } })).not.toBeNull();
   });
 
-  it('does not move the deletion timestamp on a repeated event', async () => {
-    await resolveUser(prisma, identity().clerkId, async () => identity());
-    const first = await softDeleteUser(prisma, identity().clerkId);
-    const second = await softDeleteUser(prisma, identity().clerkId);
+  /**
+   * An account marked deleted whose tokens still work is not deleted in any sense
+   * the user would recognise.
+   */
+  it('revokes every live session', async () => {
+    const user = await createUser(
+      prisma,
+      identity({ username: `${TEST_PREFIX}rev`, email: `${TEST_PREFIX}rev@example.com` }),
+      { emailVerified: true },
+    );
+    await prisma.authSession.create({
+      data: {
+        userId: user.id,
+        tokenHash: `${TEST_PREFIX}hash`,
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+
+    await softDeleteUser(prisma, user.id);
+
+    const sessions = await prisma.authSession.findMany({ where: { userId: user.id } });
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.revokedAt).not.toBeNull();
+  });
+
+  /** Idempotent: a repeat must not reset the retention clock. */
+  it('keeps the original timestamp on a repeat', async () => {
+    const user = await createUser(
+      prisma,
+      identity({ username: `${TEST_PREFIX}twice`, email: `${TEST_PREFIX}twice@example.com` }),
+      { emailVerified: true },
+    );
+
+    const first = await softDeleteUser(prisma, user.id);
+    const second = await softDeleteUser(prisma, user.id);
 
     expect(second?.deletedAt?.getTime()).toBe(first?.deletedAt?.getTime());
   });
 
-  it('is a no-op for an unknown id', async () => {
-    expect(await softDeleteUser(prisma, `${TEST_PREFIX}never_existed`)).toBeNull();
+  it('returns null for an unknown id', async () => {
+    expect(await softDeleteUser(prisma, 'does-not-exist')).toBeNull();
   });
 });

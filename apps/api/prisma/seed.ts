@@ -48,6 +48,7 @@ import { FeedService } from '../src/modules/feed/service.js';
 import { pairKeyFor } from '../src/modules/friends/service.js';
 import { evaluateAchievements, syncAchievementCatalog } from '../src/modules/game/achievements.js';
 import { ChallengeService } from '../src/modules/game/challenges.js';
+import { hashPassword } from '../src/modules/auth/password.js';
 
 const prisma = new PrismaClient();
 
@@ -76,7 +77,23 @@ const MS_PER_HOUR = 3_600_000;
 const TIMEZONE = 'Europe/Istanbul';
 
 /** Accounts this script owns. Anything matching is deleted and rebuilt on every run. */
-const SEED_CLERK_PREFIX = 'seed_';
+/**
+ * Marks a seeded row so a later reseed can find it.
+ *
+ * Matched on the id prefix rather than an exact list, so a persona removed from this
+ * file in a later edit is still cleaned up instead of lingering as a ghost account
+ * in every developer's database.
+ */
+const SEED_ID_PREFIX = 'cseed';
+
+/**
+ * The password every seeded account shares.
+ *
+ * Seed personas exist to be signed into while working on the sign-in screen, and a
+ * fixture that cannot be signed into would make that screen untestable. Nothing here
+ * ever reaches a deployed database: `main` refuses to run against production.
+ */
+const SEED_PASSWORD = 'habitwar123';
 
 /**
  * How many of the most recent days get a DAILY_DIGEST post.
@@ -119,7 +136,6 @@ interface SeedHabit {
 }
 
 interface SeedPersona {
-  readonly clerkId: string;
   /** Staff role. Omitted for ordinary accounts. */
   readonly role?: 'MODERATOR' | 'ADMIN';
   readonly username: string;
@@ -141,7 +157,6 @@ interface SeedPersona {
  */
 const PERSONAS: readonly SeedPersona[] = [
   {
-    clerkId: 'seed_selimcan',
     username: 'selimcan',
     displayName: 'Selimcan',
     email: 'selimcan@example.com',
@@ -184,7 +199,6 @@ const PERSONAS: readonly SeedPersona[] = [
     ],
   },
   {
-    clerkId: 'seed_elifkaya',
     username: 'elifkaya',
     displayName: 'Elif Kaya',
     email: 'elif.kaya@example.com',
@@ -233,7 +247,6 @@ const PERSONAS: readonly SeedPersona[] = [
     ],
   },
   {
-    clerkId: 'seed_burakdemir',
     username: 'burakdemir',
     displayName: 'Burak Demir',
     email: 'burak.demir@example.com',
@@ -267,7 +280,6 @@ const PERSONAS: readonly SeedPersona[] = [
     ],
   },
   {
-    clerkId: 'seed_zeynep',
     username: 'zeynepars',
     displayName: 'Zeynep Arslan',
     email: 'zeynep.arslan@example.com',
@@ -301,7 +313,6 @@ const PERSONAS: readonly SeedPersona[] = [
     ],
   },
   {
-    clerkId: 'seed_mert',
     username: 'mertaydin',
     displayName: 'Mert Aydın',
     email: 'mert.aydin@example.com',
@@ -334,7 +345,6 @@ const PERSONAS: readonly SeedPersona[] = [
    * with a role, and seeding one that way is what proves the two coexist.
    */
   {
-    clerkId: 'seed_moderator',
     username: 'moderator',
     displayName: 'Deniz (Moderatör)',
     email: 'moderator@example.com',
@@ -397,16 +407,21 @@ interface SeededUser {
   level: number;
 }
 
+/**
+ * Hashed once and reused. Argon2 is deliberately slow, so hashing it per persona
+ * would add seconds to every seed run for no benefit — the digest is identical.
+ */
+let seedPasswordHash = '';
+
 async function main(): Promise<void> {
+  seedPasswordHash = await hashPassword(SEED_PASSWORD);
+
   // -------------------------------------------------------------------------
   // 1. Reset
   // -------------------------------------------------------------------------
 
-  // Matched on the clerkId prefix rather than an exact list, so a persona removed
-  // from this file in a later edit is still cleaned up instead of lingering as a
-  // ghost account in every developer's database.
   const removed = await prisma.user.deleteMany({
-    where: { clerkId: { startsWith: SEED_CLERK_PREFIX } },
+    where: { id: { startsWith: SEED_ID_PREFIX } },
   });
   if (removed.count > 0) console.log(`Removed ${removed.count} previous seed user(s)`);
 
@@ -671,8 +686,11 @@ async function seedPersona(persona: SeedPersona, digestSeeds: DigestSeed[]): Pro
   const user = await prisma.user.create({
     data: {
       id: seedUserId(persona.username),
-      clerkId: persona.clerkId,
       username: persona.username,
+      passwordHash: seedPasswordHash,
+      // Seeded accounts skip the verification mail: there is no mail server locally,
+      // and an unverified fixture could not be signed in to.
+      emailVerifiedAt: new Date(),
       displayName: persona.displayName,
       email: persona.email,
       bio: persona.bio,
@@ -1075,7 +1093,8 @@ async function report(input: ReportInput): Promise<void> {
     `Season: ${input.season} (x${SEASON.eventMultiplier})`,
     `Badge catalogue: ${input.catalog.synced} synced, ${input.catalog.retired} retired`,
     '',
-    'Users (x-dev-user-id header value on the right):',
+    `Users — sign in with any email below, password: ${SEED_PASSWORD}`,
+    '(the id on the right is the x-dev-user-id value, for AUTH_MODE=dev)',
   ];
 
   for (const user of input.users.values()) {

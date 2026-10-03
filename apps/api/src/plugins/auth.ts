@@ -3,32 +3,32 @@
  *
  * Two modes, chosen by `AUTH_MODE`:
  *
- *  - `clerk`   — verifies a Clerk session JWT from the Authorization header, then
- *                resolves (or provisions) the local User row it maps to.
- *  - `dev`     — trusts an `x-dev-user-id` header. Local work only; `env.ts` refuses
- *                to parse this combination when NODE_ENV is production.
+ *  - `token` — verifies this product's own access token, a short-lived HS256 JWT,
+ *              and loads the User row it names.
+ *  - `dev`   — trusts an `x-dev-user-id` header. Local work only; `env.ts` refuses
+ *              to parse this combination when NODE_ENV is production.
  *
- * Token verification and identity lookup are injected rather than imported directly,
- * so the whole auth path can be exercised in tests without a Clerk tenant. That
- * matters: auth is the one piece where "we'll test it in staging" means shipping it
- * untested.
+ * The access token carries the session it was minted from, and that session is
+ * checked on every request. Skipping the check would make the token stateless and
+ * every request cheaper — and would also mean "sign out my stolen phone" did
+ * nothing for fifteen minutes. The lookup is one indexed read; the guarantee is
+ * worth it.
  */
 
-import { createClerkClient, verifyToken } from '@clerk/backend';
 import type { UserRole } from '@prisma/client';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 
 import type { Env } from '../env.js';
 import { AppError } from '../lib/errors.js';
-import { resolveUser, type ClerkIdentity, type IdentityFetcher } from '../modules/users/service.js';
+import { verifyAccessToken } from '../modules/auth/tokens.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
     /** Local User.id. Empty until requireUser has run. */
     userId: string;
-    /** Clerk subject for this request, when authenticated through Clerk. */
-    clerkId: string | null;
+    /** Session this request's token was minted from. Null under dev auth. */
+    sessionId: string | null;
     /** Role of the authenticated user. Empty-ish until requireUser has run. */
     userRole: UserRole;
   }
@@ -42,15 +42,8 @@ declare module 'fastify' {
 
 const DEV_USER_HEADER = 'x-dev-user-id';
 
-/** Verifies a session token and returns the Clerk subject. */
-export type TokenVerifier = (token: string) => Promise<string>;
-
 export interface AuthPluginOptions {
   readonly env: Env;
-  /** Overrides Clerk JWT verification. Tests inject a stub. */
-  readonly verifyTokenFn?: TokenVerifier;
-  /** Overrides the Clerk user lookup. Tests inject a stub. */
-  readonly fetchIdentityFn?: IdentityFetcher;
   /** Clock, injected so suspension-expiry tests do not have to wait. */
   readonly now?: () => Date;
 }
@@ -64,41 +57,12 @@ function bearerToken(request: FastifyRequest): string | null {
   return value.trim() || null;
 }
 
-function clerkVerifier(secretKey: string): TokenVerifier {
-  return async (token) => {
-    const payload = await verifyToken(token, { secretKey });
-    if (!payload.sub) throw new Error('token has no subject');
-    return payload.sub;
-  };
-}
-
-function clerkIdentityFetcher(secretKey: string): IdentityFetcher {
-  const clerk = createClerkClient({ secretKey });
-  return async (clerkId): Promise<ClerkIdentity> => {
-    const user = await clerk.users.getUser(clerkId);
-    const primary =
-      user.emailAddresses.find((address) => address.id === user.primaryEmailAddressId) ??
-      user.emailAddresses[0];
-    if (!primary) {
-      throw new Error(`Clerk user ${clerkId} has no email address`);
-    }
-    return {
-      clerkId,
-      email: primary.emailAddress,
-      username: user.username,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      imageUrl: user.imageUrl,
-    };
-  };
-}
-
 async function authPlugin(app: FastifyInstance, options: AuthPluginOptions): Promise<void> {
   const { env } = options;
   const now = options.now ?? ((): Date => new Date());
 
   app.decorateRequest('userId', '');
-  app.decorateRequest('clerkId', null);
+  app.decorateRequest('sessionId', null);
   app.decorateRequest('userRole', 'USER');
 
   if (env.AUTH_MODE === 'dev') {
@@ -114,16 +78,14 @@ async function authPlugin(app: FastifyInstance, options: AuthPluginOptions): Pro
       if (!user) {
         throw new AppError('UNAUTHORIZED', 'Unknown user id');
       }
-      attachUser(request, user, user.clerkId, now());
+      attachUser(request, user, null, now());
     });
     app.decorate('requireModerator', moderatorGuard(app));
     return;
   }
 
-  // AUTH_MODE=clerk. env.ts guarantees CLERK_SECRET_KEY is present here.
-  const secretKey = env.CLERK_SECRET_KEY as string;
-  const verify = options.verifyTokenFn ?? clerkVerifier(secretKey);
-  const fetchIdentity = options.fetchIdentityFn ?? clerkIdentityFetcher(secretKey);
+  // AUTH_MODE=token. env.ts guarantees AUTH_JWT_SECRET is present here.
+  const secret = new TextEncoder().encode(env.AUTH_JWT_SECRET as string);
 
   app.decorate('requireUser', async (request: FastifyRequest) => {
     const token = bearerToken(request);
@@ -131,30 +93,44 @@ async function authPlugin(app: FastifyInstance, options: AuthPluginOptions): Pro
       throw new AppError('UNAUTHORIZED', 'Missing bearer token');
     }
 
-    let clerkId: string;
+    let claims;
     try {
-      clerkId = await verify(token);
+      claims = await verifyAccessToken(token, secret);
     } catch (error) {
-      request.log.debug({ err: error }, 'token verification failed');
-      throw new AppError('UNAUTHORIZED', 'Invalid or expired token');
+      request.log.debug({ err: error }, 'access token verification failed');
+      throw new AppError('UNAUTHORIZED', 'Oturum geçersiz. Tekrar giriş yap.');
     }
 
-    let user;
-    try {
-      user = await resolveUser(app.prisma, clerkId, fetchIdentity);
-    } catch (error) {
-      // The token is valid but the account cannot be materialised. Surfacing this as
-      // a 500 would be honest about the cause but useless to the client, which can
-      // only retry; 401 tells it to re-authenticate, which is the right next step.
-      request.log.error({ err: error, clerkId }, 'failed to resolve user for a valid token');
-      throw new AppError('UNAUTHORIZED', 'Account could not be resolved');
-    }
+    /*
+      One read, both checks. The session must still be live, which is what makes
+      sign-out take effect before the access token's own expiry; and the user is
+      loaded from it rather than looked up separately, so a revoked session cannot
+      be paired with a still-valid user row.
+    */
+    const session = await app.prisma.authSession.findUnique({
+      where: { id: claims.sessionId },
+      include: { user: true },
+    });
 
-    if (user.deletedAt) {
+    const at = now();
+    if (!session || session.revokedAt || session.expiresAt <= at) {
+      throw new AppError('UNAUTHORIZED', 'Oturum sonlandırılmış. Tekrar giriş yap.');
+    }
+    if (session.userId !== claims.userId) {
+      // A valid signature naming a session that belongs to someone else means the
+      // signing key is compromised or a token was hand-assembled. Neither is a
+      // request to serve.
+      request.log.error(
+        { sessionId: claims.sessionId, claimed: claims.userId },
+        'token subject does not match its session owner',
+      );
+      throw new AppError('UNAUTHORIZED', 'Oturum geçersiz. Tekrar giriş yap.');
+    }
+    if (session.user.deletedAt) {
       throw new AppError('FORBIDDEN', 'Account has been deleted');
     }
 
-    attachUser(request, user, clerkId, now());
+    attachUser(request, session.user, session.id, at);
   });
 
   app.decorate('requireModerator', moderatorGuard(app));
@@ -201,7 +177,7 @@ interface AuthenticatedUser {
 function attachUser(
   request: FastifyRequest,
   user: AuthenticatedUser,
-  clerkId: string | null,
+  sessionId: string | null,
   at: Date,
 ): void {
   if (user.suspendedUntil && user.suspendedUntil > at && !isSuspensionExempt(request)) {
@@ -212,7 +188,7 @@ function attachUser(
   }
 
   request.userId = user.id;
-  request.clerkId = clerkId;
+  request.sessionId = sessionId;
   request.userRole = user.role;
 }
 

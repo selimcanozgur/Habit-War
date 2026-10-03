@@ -84,7 +84,6 @@ let push: PushService;
 async function makeUser(suffix: string): Promise<string> {
   const user = await prisma.user.create({
     data: {
-      clerkId: `${PREFIX}${suffix}`,
       username: `${PREFIX}${suffix}`,
       displayName: suffix,
       email: `${PREFIX}${suffix}@example.com`,
@@ -122,7 +121,7 @@ async function queue(count: number, type: NotificationType = 'POST_LIKE'): Promi
 }
 
 async function cleanup(): Promise<void> {
-  await prisma.user.deleteMany({ where: { clerkId: { startsWith: PREFIX } } });
+  await prisma.user.deleteMany({ where: { username: { startsWith: PREFIX } } });
 }
 
 beforeEach(async () => {

@@ -51,7 +51,6 @@ function context(now: Date = NOW): JobContext {
 async function makeUser(suffix: string, deletedAt: Date | null = null): Promise<string> {
   const user = await prisma.user.create({
     data: {
-      clerkId: `${PREFIX}${suffix}`,
       username: `${PREFIX}${suffix}`,
       displayName: suffix,
       email: `${PREFIX}${suffix}@example.com`,
@@ -66,7 +65,7 @@ async function cleanup(): Promise<void> {
   // a row can outlive every user this file created. `reason` is required, so it
   // carries the prefix and doubles as the cleanup handle.
   await prisma.moderationAction.deleteMany({ where: { reason: { startsWith: PREFIX } } });
-  await prisma.user.deleteMany({ where: { clerkId: { startsWith: PREFIX } } });
+  await prisma.user.deleteMany({ where: { username: { startsWith: PREFIX } } });
 }
 
 beforeEach(async () => {

@@ -43,7 +43,6 @@ async function makeUser(
 ): Promise<string> {
   const user = await prisma.user.create({
     data: {
-      clerkId: `${PREFIX}${suffix}`,
       username: `${PREFIX}${suffix}`,
       displayName: suffix,
       email: `${PREFIX}${suffix}@example.com`,
@@ -54,7 +53,7 @@ async function makeUser(
 }
 
 async function cleanup(): Promise<void> {
-  await prisma.user.deleteMany({ where: { clerkId: { startsWith: PREFIX } } });
+  await prisma.user.deleteMany({ where: { username: { startsWith: PREFIX } } });
 }
 
 beforeEach(async () => {

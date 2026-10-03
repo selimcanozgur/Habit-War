@@ -38,7 +38,7 @@ export interface FriendServiceDeps {
 }
 
 /**
- * The public shape of another user. Deliberately narrow: no email, no clerkId, no
+ * The public shape of another user. Deliberately narrow: no email, no passwordHash, no
  * timezone, no birth date. Everything here is already visible on a profile screen.
  */
 export interface PublicProfile {
@@ -84,7 +84,7 @@ export interface FriendRequestResult {
 
 /**
  * The columns a public profile needs. Selected explicitly rather than returning the
- * whole row: `User` carries email, clerkId and birthDate, and a `select` is the only
+ * whole row: `User` carries email, passwordHash and birthDate, and a `select` is the only
  * thing standing between "we added a column" and "we leaked a column".
  */
 const PROFILE_SELECT = {

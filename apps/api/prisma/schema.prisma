@@ -24,9 +24,18 @@ datasource db {
 model User {
   id String @id @default(cuid())
 
-  /// Clerk's user id. The spec chose Clerk for auth but gave the User model no
-  /// field to correlate against, which makes the webhook sync impossible.
-  clerkId String @unique
+  /// Argon2id hash of the password, for accounts that have one.
+  ///
+  /// Null for an account created through Google or Apple: that user has no password
+  /// here, and storing an empty string instead would make "has a password" a check
+  /// on falsiness rather than on nullness — the kind of distinction that eventually
+  /// lets a blank password authenticate.
+  passwordHash String?
+
+  /// Set once the user proves they control the address. Sign-in is refused until
+  /// then for password accounts; a provider account arrives already verified,
+  /// because Google and Apple have done it.
+  emailVerifiedAt DateTime?
 
   username    String  @unique
   displayName String
@@ -92,6 +101,11 @@ model User {
   sessions   Session[]
   xpLedger   XpLedger[]
   dailyUsage DailyUsage[]
+
+  // --- Authentication ------------------------------------------------------
+  authIdentities AuthIdentity[]
+  authSessions   AuthSession[]
+  authTokens     AuthToken[]
 
   // --- Social graph (Phase 1) ---------------------------------------------
   /// Friendship and Follow both point at User twice, so every one of these back
@@ -291,6 +305,97 @@ model DailyUsage {
 
   @@unique([userId, dateKey, category])
   @@index([userId, dateKey])
+}
+
+// ---------------------------------------------------------------------------
+// Authentication
+// ---------------------------------------------------------------------------
+
+/// A linked Google or Apple account.
+///
+/// Separate from User rather than a pair of columns, because one person may hold
+/// both — and because a password account and a Google account for the same address
+/// are the same person, not two. Sign-in links the provider to the existing row by
+/// verified email instead of creating a second account.
+model AuthIdentity {
+  id     String @id @default(cuid())
+  userId String
+
+  provider AuthProvider
+
+  /// The provider's own subject id (`sub`). Stable across email changes there,
+  /// which is why the link is keyed on it and not on the address.
+  providerAccountId String
+
+  /// The address the provider asserted at link time. Kept for support questions —
+  /// never used to authenticate, since User.email is this product's own truth.
+  email String?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// One link per provider per account, and one account per provider subject.
+  @@unique([provider, providerAccountId])
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
+/// A refresh token, one row per signed-in device.
+///
+/// Rows rather than stateless JWTs because sign-out has to actually revoke: a
+/// stateless refresh token stays valid until it expires, so "log out my stolen
+/// phone" would be a lie. Only the hash is stored — a database leak must not hand
+/// the attacker working tokens.
+model AuthSession {
+  id     String @id @default(cuid())
+  userId String
+
+  /// SHA-256 of the refresh token.
+  tokenHash String @unique
+
+  /// What the user sees in a device list. Free text from the client, so it is
+  /// display-only and never trusted for a decision.
+  userAgent String? @db.VarChar(200)
+  ipAddress String? @db.VarChar(45)
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  /// Set when the token is rotated or revoked; a used token is kept rather than
+  /// deleted so that replaying it can be detected.
+  revokedAt DateTime?
+
+  /// The session this one was rotated into, for walking a reuse chain.
+  replacedById String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// A single-use token for verifying an email or resetting a password.
+///
+/// Hashed like a refresh token and for the same reason: whoever reads this table
+/// must not be able to take over an account with what they find. `consumedAt`
+/// enforces single use, which is what stops a reset link forwarded in an email
+/// thread from working a second time.
+model AuthToken {
+  id     String @id @default(cuid())
+  userId String
+
+  kind      AuthTokenKind
+  tokenHash String        @unique
+
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind])
+  @@index([expiresAt])
 }
 
 // ---------------------------------------------------------------------------
@@ -1136,4 +1241,14 @@ enum ModerationActionType {
   USER_SUSPENDED
   USER_REINSTATED
   USER_WARNED
+}
+
+enum AuthProvider {
+  GOOGLE
+  APPLE
+}
+
+enum AuthTokenKind {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
 }

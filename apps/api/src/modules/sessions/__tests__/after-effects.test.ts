@@ -33,7 +33,7 @@ function now(): Date {
 }
 
 async function cleanup(): Promise<void> {
-  await prisma.user.deleteMany({ where: { clerkId: { startsWith: PREFIX } } });
+  await prisma.user.deleteMany({ where: { username: { startsWith: PREFIX } } });
   await prisma.season.deleteMany({ where: { code: { startsWith: PREFIX } } });
 }
 
@@ -65,7 +65,6 @@ beforeEach(async () => {
 
   const user = await prisma.user.create({
     data: {
-      clerkId: `${PREFIX}user`,
       username: `${PREFIX}user`,
       displayName: 'Efekt',
       email: `${PREFIX}user@example.com`,

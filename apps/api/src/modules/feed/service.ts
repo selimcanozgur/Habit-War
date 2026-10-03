@@ -93,7 +93,7 @@ export interface DigestStats {
 
 /**
  * The author fields every feed row carries. Selected explicitly rather than
- * `include: { author: true }` so a future column on User (email, clerkId, birthDate)
+ * `include: { author: true }` so a future column on User (email, passwordHash, birthDate)
  * cannot leak into a social response by default.
  */
 const AUTHOR_SELECT = {

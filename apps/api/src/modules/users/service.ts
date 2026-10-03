@@ -1,58 +1,55 @@
 /**
- * Mapping Clerk identities onto local User rows.
+ * Turning a new identity into a local User row.
  *
- * Clerk owns identity; this database owns progression. The only link between them is
- * `User.clerkId`. Keeping that link correct is the whole job of this module, and it
- * is the part the spec never budgeted for — it named Clerk as the auth provider but
- * gave `User` no field to correlate against.
- *
- * Two paths keep the two sides in sync, deliberately:
- *
- *  - The webhook is authoritative for updates and deletions.
- *  - Just-in-time provisioning covers the gap for creation, because a webhook can be
- *    delayed, retried or dropped, and a user who has just signed up must not get a
- *    404 on their first request.
+ * This product owns identity outright: a password account is created here, and a
+ * Google or Apple account is created from the claims that provider asserted. What
+ * stays constant either way is the shape of the row — a legal username, a display
+ * name, a verified email — so both paths come through here rather than each
+ * inventing their own idea of what a new user looks like.
  */
 
 import type { PrismaClient, User } from '@prisma/client';
 
-/** The subset of a Clerk user this service needs. Keeps the SDK out of the signature. */
-export interface ClerkIdentity {
-  readonly clerkId: string;
+/**
+ * What is known about a person at the moment their account is created.
+ *
+ * Every field but `email` is a hint. A password signup has little more than the
+ * address; Google supplies a name and a picture; Apple supplies a name only on the
+ * very first authorisation and never again. The derivations below are written to
+ * produce a sound account from any of those.
+ */
+export interface NewIdentity {
   readonly email: string;
-  readonly username: string | null;
-  readonly firstName: string | null;
-  readonly lastName: string | null;
-  readonly imageUrl: string | null;
+  readonly username?: string | null;
+  readonly firstName?: string | null;
+  readonly lastName?: string | null;
+  readonly imageUrl?: string | null;
 }
-
-/** Fetches an identity from Clerk. Injected so tests need no Clerk tenant. */
-export type IdentityFetcher = (clerkId: string) => Promise<ClerkIdentity>;
 
 const USERNAME_MIN = 3;
 const USERNAME_MAX = 20;
 const MAX_USERNAME_ATTEMPTS = 25;
 
 /**
- * Derives a legal username from whatever Clerk provides.
+ * Derives a legal username from whatever the signup supplied.
  *
- * Clerk usernames are optional and may contain characters this product does not
- * allow, so the value is always normalised rather than trusted. The fallbacks run
- * username → email local part → a slice of the Clerk id, which is guaranteed to
- * exist.
+ * Nothing here is trusted as given: a provider's username may contain characters
+ * this product does not allow, and an email local part may be too short. The
+ * fallbacks run username → email local part → a random suffix, so the function
+ * always returns something legal even for an address like `x@example.com`.
  */
-export function deriveUsername(identity: ClerkIdentity): string {
+export function deriveUsername(identity: NewIdentity): string {
   const candidates = [
     identity.username,
     identity.email.split('@')[0],
-    `user_${identity.clerkId.replace(/^user_/, '').slice(0, 8)}`,
+    `user_${Math.random().toString(36).slice(2, 10)}`,
   ];
 
   for (const candidate of candidates) {
     const normalised = normaliseUsername(candidate);
     if (normalised) return normalised;
   }
-  // Unreachable: the clerkId fallback always normalises to something.
+  // Unreachable in practice: the random fallback always normalises to something.
   return `user_${Date.now().toString(36)}`.slice(0, USERNAME_MAX);
 }
 
@@ -67,8 +64,8 @@ function normaliseUsername(raw: string | null | undefined): string | null {
   return cleaned.slice(0, USERNAME_MAX);
 }
 
-/** A display name from whatever parts Clerk has, falling back to the username. */
-export function deriveDisplayName(identity: ClerkIdentity, username: string): string {
+/** A display name from whatever name parts arrived, falling back to the username. */
+export function deriveDisplayName(identity: NewIdentity, username: string): string {
   const parts = [identity.firstName, identity.lastName].filter(Boolean);
   return parts.length > 0 ? parts.join(' ') : username;
 }
@@ -96,73 +93,71 @@ async function findFreeUsername(prisma: PrismaClient, base: string): Promise<str
 }
 
 /**
- * Returns the local user for a Clerk id, provisioning one if this is their first
- * authenticated request.
+ * Creates a user row from a fresh identity.
  *
- * @throws when the Clerk identity cannot be fetched — the caller turns that into a
- *   401 rather than silently creating a half-populated account.
+ * `emailVerified` is the caller's call, not a guess: a password signup starts
+ * unverified and must prove the address, while Google and Apple have already done
+ * that work and a second verification mail would be noise.
+ *
+ * The username search is racy by nature — two signups can pick the same name between
+ * the check and the insert — so the unique constraint is the real guarantee and the
+ * caller handles the conflict.
  */
-export async function resolveUser(
+export async function createUser(
   prisma: PrismaClient,
-  clerkId: string,
-  fetchIdentity: IdentityFetcher,
+  identity: NewIdentity,
+  options: { readonly passwordHash?: string | null; readonly emailVerified: boolean },
 ): Promise<User> {
-  const existing = await prisma.user.findUnique({ where: { clerkId } });
-  if (existing) return existing;
-
-  const identity = await fetchIdentity(clerkId);
   const base = deriveUsername(identity);
   const username = await findFreeUsername(prisma, base);
 
-  try {
-    return await prisma.user.create({
-      data: {
-        clerkId,
-        username,
-        displayName: deriveDisplayName(identity, username),
-        email: identity.email,
-        avatarUrl: identity.imageUrl,
-      },
-    });
-  } catch (error) {
-    // Two concurrent first requests can both miss the lookup and both insert.
-    // Whoever lost the race just reads the winner's row.
-    const raced = await prisma.user.findUnique({ where: { clerkId } });
-    if (raced) return raced;
-    throw error;
-  }
-}
-
-/** Applies a `user.updated` webhook. A no-op for an unknown id. */
-export async function syncUser(prisma: PrismaClient, identity: ClerkIdentity): Promise<User | null> {
-  const existing = await prisma.user.findUnique({ where: { clerkId: identity.clerkId } });
-  if (!existing) return null;
-
-  return prisma.user.update({
-    where: { clerkId: identity.clerkId },
+  return prisma.user.create({
     data: {
-      email: identity.email,
-      avatarUrl: identity.imageUrl,
-      // displayName and username are user-editable in this product, so Clerk does
-      // not overwrite them after creation.
+      username,
+      displayName: deriveDisplayName(identity, username),
+      email: identity.email.toLowerCase(),
+      avatarUrl: identity.imageUrl ?? null,
+      passwordHash: options.passwordHash ?? null,
+      emailVerifiedAt: options.emailVerified ? new Date() : null,
     },
   });
 }
 
 /**
- * Applies a `user.deleted` webhook.
+ * Finds a live account by email.
  *
- * Soft delete, not a row drop. A hard delete would take the user's sessions with it,
- * and those sessions are what other users' aggregates and any dispute over an XP
- * correction were computed from. The scheduled erasure job handles the real deletion
- * once the retention window closes.
+ * Addresses are stored and compared lowercased. Without that, `Ali@x.com` and
+ * `ali@x.com` would be two accounts, and whichever one the user did not create is
+ * the one they would be unable to sign in to.
  */
-export async function softDeleteUser(prisma: PrismaClient, clerkId: string): Promise<User | null> {
-  const existing = await prisma.user.findUnique({ where: { clerkId } });
+export function findUserByEmail(prisma: PrismaClient, email: string): Promise<User | null> {
+  return prisma.user.findFirst({
+    where: { email: email.toLowerCase(), deletedAt: null },
+  });
+}
+
+/**
+ * Marks an account deleted without dropping the row.
+ *
+ * A hard delete would take the user's sessions with it, and those sessions are what
+ * other users' aggregates and any dispute over an XP correction were computed from.
+ * The scheduled erasure job performs the real deletion once the retention window
+ * closes.
+ *
+ * Every auth session is revoked in the same breath: an account marked deleted whose
+ * tokens still work is not deleted in any sense the user would recognise.
+ */
+export async function softDeleteUser(prisma: PrismaClient, userId: string): Promise<User | null> {
+  const existing = await prisma.user.findUnique({ where: { id: userId } });
   if (!existing || existing.deletedAt) return existing;
 
-  return prisma.user.update({
-    where: { clerkId },
-    data: { deletedAt: new Date() },
-  });
+  const now = new Date();
+  const [user] = await prisma.$transaction([
+    prisma.user.update({ where: { id: userId }, data: { deletedAt: now } }),
+    prisma.authSession.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: now },
+    }),
+  ]);
+  return user;
 }

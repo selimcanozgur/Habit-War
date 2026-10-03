@@ -710,13 +710,13 @@ export class SafetyService {
   async requestAccountDeletion(userId: string): Promise<AccountDeletionResult> {
     const user = await this.#prisma.user.findUnique({
       where: { id: userId },
-      select: { clerkId: true, deletedAt: true },
+      select: { deletedAt: true },
     });
     if (!user) throw notFound('User not found');
 
-    // `softDeleteUser` keys on clerkId and already returns early for an
-    // already-deleted row, so the existing timestamp survives a repeat request.
-    const deleted = await softDeleteUser(this.#prisma, user.clerkId);
+    // `softDeleteUser` already returns early for an already-deleted row, so the
+    // existing timestamp survives a repeat request.
+    const deleted = await softDeleteUser(this.#prisma, userId);
     const deletedAt = deleted?.deletedAt ?? user.deletedAt ?? this.#now();
 
     return {
