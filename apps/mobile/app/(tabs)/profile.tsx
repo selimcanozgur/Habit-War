@@ -34,7 +34,7 @@ import {
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ApiError } from '../src/api/client';
+import { ApiError } from '../../src/api/client';
 import {
   describeClass,
   getProfile,
@@ -44,15 +44,16 @@ import {
   readProfile,
   readStats,
   type StatsPeriod,
-} from '../src/api/profile';
-import { AchievementShelf } from '../src/components/AchievementShelf';
-import { Button, cardStyle } from '../src/components/Button';
-import { Icon, type IconName } from '../src/components/Icon';
-import { ScreenHero } from '../src/components/ScreenHero';
-import { StatRadar } from '../src/components/StatRadar';
-import { StreakCalendar } from '../src/components/StreakCalendar';
-import { XpBar } from '../src/components/XpBar';
-import { colors, radius, spacing, type } from '../src/theme';
+} from '../../src/api/profile';
+import { AchievementShelf } from '../../src/components/AchievementShelf';
+import { Button, cardStyle } from '../../src/components/Button';
+import { Icon, type IconName } from '../../src/components/Icon';
+import { ScreenHero } from '../../src/components/ScreenHero';
+import { StatRadar } from '../../src/components/StatRadar';
+import { StreakCalendar } from '../../src/components/StreakCalendar';
+import { XpBar } from '../../src/components/XpBar';
+import { useAuth } from '../../src/auth/AuthContext';
+import { colors, radius, spacing, type } from '../../src/theme';
 
 import type { Stat } from '@habitwar/domain';
 
@@ -112,6 +113,7 @@ const METRIC_COLORS: Readonly<Record<'sessions' | 'minutes' | 'xp', string>> = {
 };
 
 export default function ProfileScreen(): React.JSX.Element {
+  const { signOut } = useAuth();
   const [period, setPeriod] = useState<StatsPeriod>('week');
   const [pendingSetting, setPendingSetting] = useState<string | null>(null);
 
@@ -445,6 +447,27 @@ export default function ProfileScreen(): React.JSX.Element {
                 </Pressable>
               ))}
             </View>
+
+            {/* Sign-out sits outside SETTINGS_ENTRIES because it is not a navigation
+                row that opens a screen — it is an action that ends the session. */}
+            <Pressable
+              style={({ pressed }) => [styles.settingRow, pressed && styles.settingRowPressed]}
+              onPress={() => {
+                void Haptics.selectionAsync();
+                void signOut();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Çıkış yap"
+            >
+              <View style={[styles.settingIcon, styles.settingIconDanger]}>
+                <Icon name="logout" size={ICON_SIZE} color={colors.danger} />
+              </View>
+              <View style={styles.settingText}>
+                <Text style={[styles.settingLabel, styles.destructive]}>Çıkış yap</Text>
+                <Text style={styles.settingHint}>Bu cihazdan oturumu kapat</Text>
+              </View>
+              <Icon name="chevron-right" size={ICON_SIZE} color={colors.textFaint} />
+            </Pressable>
 
             {/*
               Placeholder screens are not built yet, but the entries must be visible and

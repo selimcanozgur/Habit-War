@@ -300,6 +300,21 @@ const icons = {
     `  <rect x="4.5" y="10.5" width="15" height="10" rx="2"/>
   <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>`,
   ),
+  // The password-visibility pair, and the close glyph. `x` had been standing in as
+  // `minus` in the search field and the composer, which read as "remove" rather than
+  // "dismiss".
+  'ui/eye': svg(
+    `  <path d="M2.5 12S6 6 12 6s9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6"/>
+  <circle cx="12" cy="12" r="3"/>`,
+  ),
+  'ui/eye-off': svg(
+    `  <path d="M10.6 6.2A8.6 8.6 0 0 1 12 6c6 0 9.5 6 9.5 6a17 17 0 0 1-3 3.6"/>
+  <path d="M6.5 7.9A17 17 0 0 0 2.5 12S6 18 12 18c1.4 0 2.6-.3 3.7-.8"/>
+  <path d="m4 4 16 16"/>`,
+  ),
+  'ui/x': svg(
+    `  <path d="m6 6 12 12M18 6 6 18"/>`,
+  ),
   'ui/headset': svg(
     `  <path d="M4 14v-2a8 8 0 0 1 16 0v2"/>
   <path d="M4 14.5h2a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1Z"/>

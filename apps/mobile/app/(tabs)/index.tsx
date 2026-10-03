@@ -39,7 +39,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ApiError } from '../src/api/client';
+import { ApiError } from '../../src/api/client';
 import {
   abandonSession,
   completeSession,
@@ -48,22 +48,22 @@ import {
   startSession,
   type CompleteSessionResponse,
   type Habit,
-} from '../src/api/sessions';
+} from '../../src/api/sessions';
 import {
   describeClass,
   getProfile,
   getProfileStats,
   readProfile,
   readStats,
-} from '../src/api/profile';
-import { getCurrentSeason, normaliseSeason } from '../src/api/social';
-import { Button, cardStyle } from '../src/components/Button';
-import { CharacterHeader } from '../src/components/CharacterHeader';
-import { CATEGORY_ICONS, Icon, type IconName } from '../src/components/Icon';
-import { ScreenHero } from '../src/components/ScreenHero';
-import { SessionReward } from '../src/components/SessionReward';
-import { formatElapsed, TICK_MS, useTimerStore } from '../src/stores/timer';
-import { colors, radius, spacing, statColors, type } from '../src/theme';
+} from '../../src/api/profile';
+import { getCurrentSeason, normaliseSeason } from '../../src/api/social';
+import { Button, cardStyle } from '../../src/components/Button';
+import { CharacterHeader } from '../../src/components/CharacterHeader';
+import { CATEGORY_ICONS, Icon, type IconName } from '../../src/components/Icon';
+import { ScreenHero } from '../../src/components/ScreenHero';
+import { SessionReward } from '../../src/components/SessionReward';
+import { formatElapsed, TICK_MS, useTimerStore } from '../../src/stores/timer';
+import { colors, radius, spacing, statColors, type } from '../../src/theme';
 
 /** One size for a list row, one for the running session's header. */
 const ICON_SIZE = 22;

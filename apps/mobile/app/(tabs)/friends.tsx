@@ -29,7 +29,7 @@ import {
   View,
 } from 'react-native';
 
-import { ApiError } from '../src/api/client';
+import { ApiError } from '../../src/api/client';
 import {
   acceptFriendRequest,
   declineFriendRequest,
@@ -42,12 +42,12 @@ import {
   searchUsers,
   sendFriendRequest,
   type SocialUser,
-} from '../src/api/social';
-import { Button, ChipButton, cardStyle } from '../src/components/Button';
-import { Icon, type IconName } from '../src/components/Icon';
-import { ScreenHero } from '../src/components/ScreenHero';
-import { UserRow } from '../src/components/UserRow';
-import { colors, radius, spacing, type } from '../src/theme';
+} from '../../src/api/social';
+import { Button, ChipButton, cardStyle } from '../../src/components/Button';
+import { Icon, type IconName } from '../../src/components/Icon';
+import { ScreenHero } from '../../src/components/ScreenHero';
+import { UserRow } from '../../src/components/UserRow';
+import { colors, radius, spacing, type } from '../../src/theme';
 
 /** Long enough that a normal typist fires one request, short enough to feel live. */
 const SEARCH_DEBOUNCE_MS = 350;

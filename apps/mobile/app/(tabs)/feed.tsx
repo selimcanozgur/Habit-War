@@ -39,7 +39,7 @@ import {
   View,
 } from 'react-native';
 
-import { ApiError } from '../src/api/client';
+import { ApiError } from '../../src/api/client';
 import {
   blockUser,
   createPost,
@@ -51,13 +51,13 @@ import {
   type FeedScope,
   type Post,
   type ReportReason,
-} from '../src/api/feed';
-import { Button } from '../src/components/Button';
-import { ComposePost } from '../src/components/ComposePost';
-import { Icon, type IconName } from '../src/components/Icon';
-import { PostCard } from '../src/components/PostCard';
-import { ScreenHero } from '../src/components/ScreenHero';
-import { colors, radius, spacing, type } from '../src/theme';
+} from '../../src/api/feed';
+import { Button } from '../../src/components/Button';
+import { ComposePost } from '../../src/components/ComposePost';
+import { Icon, type IconName } from '../../src/components/Icon';
+import { PostCard } from '../../src/components/PostCard';
+import { ScreenHero } from '../../src/components/ScreenHero';
+import { colors, radius, spacing, type } from '../../src/theme';
 
 type FeedQueryData = InfiniteData<FeedPage, string | null>;
 

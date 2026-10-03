@@ -55,6 +55,8 @@ import CommentIcon from '../../assets/icons/ui/comment.svg';
 import CompassIcon from '../../assets/icons/ui/compass.svg';
 import EditIcon from '../../assets/icons/ui/edit.svg';
 import EllipsisIcon from '../../assets/icons/ui/ellipsis.svg';
+import EyeIcon from '../../assets/icons/ui/eye.svg';
+import EyeOffIcon from '../../assets/icons/ui/eye-off.svg';
 import FlameIcon from '../../assets/icons/ui/flame.svg';
 import FlameFilledIcon from '../../assets/icons/ui/flame-filled.svg';
 import HeadsetIcon from '../../assets/icons/ui/headset.svg';
@@ -79,6 +81,7 @@ import StarFilledIcon from '../../assets/icons/ui/star-filled.svg';
 import SwordsIcon from '../../assets/icons/ui/swords.svg';
 import TrophyIcon from '../../assets/icons/ui/trophy.svg';
 import UserIcon from '../../assets/icons/ui/user.svg';
+import XIcon from '../../assets/icons/ui/x.svg';
 import XpBoltIcon from '../../assets/icons/ui/xp-bolt.svg';
 import XpBoltFilledIcon from '../../assets/icons/ui/xp-bolt-filled.svg';
 
@@ -131,6 +134,8 @@ const ICONS = {
   compass: CompassIcon,
   edit: EditIcon,
   ellipsis: EllipsisIcon,
+  eye: EyeIcon,
+  'eye-off': EyeOffIcon,
   flame: FlameIcon,
   'flame-filled': FlameFilledIcon,
   headset: HeadsetIcon,
@@ -155,6 +160,7 @@ const ICONS = {
   swords: SwordsIcon,
   trophy: TrophyIcon,
   user: UserIcon,
+  x: XIcon,
   'xp-bolt': XpBoltIcon,
   'xp-bolt-filled': XpBoltFilledIcon,
 } as const;

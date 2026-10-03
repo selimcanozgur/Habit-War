@@ -1,12 +1,12 @@
 /**
  * App root.
  *
- * Holds the three things every screen depends on: the query client, the font load,
- * and the tab bar.
- *
- * Auth is still the API's dev mode, so the token provider sends `x-dev-user-id`.
- * When Clerk sign-in lands, only this provider changes — the API client already
- * takes whatever headers it is handed.
+ * Holds three things every screen depends on: the query client, the font load, and
+ * the session. Auth is now this product's own JWT stack — the AuthProvider restores
+ * a stored session on launch and hands the API client a fresh token for every request.
+ * When no session exists the user is routed to the sign-in screen; once a session
+ * is established they go to the tabs. Neither the tabs nor the auth screens have to
+ * know about each other.
  */
 
 import {
@@ -17,45 +17,50 @@ import {
   useFonts,
 } from '@expo-google-fonts/nunito';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import Constants from 'expo-constants';
-import { Tabs } from 'expo-router';
+import { Redirect, Slot, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useMemo } from 'react';
-import { ActivityIndicator, StyleSheet, View, type ColorValue } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { ApiError, setAuthHeaderProvider } from '../src/api/client';
-import { Icon, type IconName } from '../src/components/Icon';
+import { ApiError } from '../src/api/client';
+import { AuthProvider, useAuth } from '../src/auth/AuthContext';
 import { colors } from '../src/theme';
 
-/** Dev-mode identity. Replaced by a Clerk session token. */
-const DEV_USER_ID = (Constants.expoConfig?.extra?.['devUserId'] as string | undefined) ?? '';
-
-setAuthHeaderProvider(async () => {
-  const headers: Record<string, string> = {};
-  if (DEV_USER_ID) headers['x-dev-user-id'] = DEV_USER_ID;
-  return headers;
-});
-
 /**
- * Tab icon.
+ * Session gate.
  *
- * Filled when active, outlined when not — the convention every iOS and Android user
- * already reads without being taught, and the reason the active tab does not have to
- * rely on colour alone. Both variants come from the same generated set, so they share
- * a grid and a stroke weight.
+ * Sits between the provider and the rendered route tree. While the stored session
+ * is being restored it shows a spinner — the Slot underneath would flash the sign-in
+ * screen and then snap to the tabs, which looks like a bug. Once the restore settles,
+ * it redirects based on whether a user is present.
+ *
+ * expo-router's Redirect component replaces the current history entry rather than
+ * pushing a new one, so the user cannot "back" into a state that no longer applies.
  */
-function tabIcon(name: IconName, activeName: IconName) {
-  return function TabIcon({
-    color,
-    focused,
-  }: {
-    color: ColorValue;
-    focused: boolean;
-  }): React.JSX.Element {
-    return <Icon name={focused ? activeName : name} size={24} color={color as string} />;
-  };
+function SessionGate({ children }: { children: React.ReactNode }): React.JSX.Element {
+  const { user, isRestoring } = useAuth();
+  const segments = useSegments();
+
+  // The first segment tells us which route group is active.
+  const inAuthGroup = segments[0] === '(auth)';
+
+  if (isRestoring) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={colors.accent} />
+      </View>
+    );
+  }
+
+  // No session and not already in the auth group → go to sign-in.
+  if (!user && !inAuthGroup) return <Redirect href="/(auth)/sign-in" />;
+
+  // Session exists but still on an auth screen → go to the tab root.
+  if (user && inAuthGroup) return <Redirect href="/(tabs)" />;
+
+  return <>{children}</>;
 }
 
 export default function RootLayout(): React.JSX.Element {
@@ -73,8 +78,6 @@ export default function RootLayout(): React.JSX.Element {
           queries: {
             staleTime: 30_000,
             retry: (failureCount, error) => {
-              // Retrying a 401 or a 422 just burns battery; only transient failures
-              // are worth a second attempt.
               if (error instanceof ApiError && !error.isRetryable) return false;
               return failureCount < 2;
             },
@@ -85,9 +88,6 @@ export default function RootLayout(): React.JSX.Element {
     [],
   );
 
-  // Held rather than rendered with a fallback face: every size in the type scale is
-  // set for Nunito's metrics, so a system-font first paint would reflow the whole
-  // app a beat later.
   if (!fontsLoaded) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' }}>
@@ -103,66 +103,23 @@ export default function RootLayout(): React.JSX.Element {
         laid out for a handset — stretched to 1280px the cards become letterboxes and
         the tab bar spreads its five items across a metre of glass. Capping the frame
         keeps the web build an honest preview of the phone rather than a broken
-        desktop app. On a real device the cap is wider than the screen, so it does
-        nothing.
+        desktop app.
       */}
       <View style={styles.frame}>
         <SafeAreaProvider>
           <QueryClientProvider client={queryClient}>
-            <StatusBar style="light" />
-            <Tabs
-            screenOptions={{
-              headerShown: false,
-              sceneStyle: { backgroundColor: colors.bg },
-              tabBarStyle: {
-                // Dark stone, per the design: the tab bar is the frame around the
-                // parchment pages rather than another page.
-                backgroundColor: colors.stone,
-                borderTopColor: colors.frame,
-                borderTopWidth: 2,
-                // Tall enough for a 24px icon, its label, and breathing room above
-                // the home indicator. At 62 the descenders in "Bugün" were clipped.
-                height: 74,
-                paddingTop: 8,
-                paddingBottom: 12,
-              },
-              tabBarActiveTintColor: colors.gold,
-              tabBarInactiveTintColor: colors.textOnDarkMuted,
-              tabBarLabelStyle: {
-                fontFamily: 'Nunito_700Bold',
-                fontSize: 11,
-                // Turkish labels carry descenders and dotted capitals; the default
-                // line height crops both.
-                lineHeight: 15,
-                marginTop: 2,
-              },
-            }}
-          >
-            {/* Order follows the spec's information architecture (§9). */}
-            <Tabs.Screen
-              name="index"
-              options={{ title: 'Bugün', tabBarIcon: tabIcon('today', 'today-filled') }}
-            />
-            <Tabs.Screen
-              name="feed"
-              options={{ title: 'Akış', tabBarIcon: tabIcon('feed', 'feed-filled') }}
-            />
-            <Tabs.Screen
-              name="battle"
-              options={{ title: 'Savaş', tabBarIcon: tabIcon('battle', 'battle-filled') }}
-            />
-            <Tabs.Screen
-              name="friends"
-              options={{
-                title: 'Arkadaşlar',
-                tabBarIcon: tabIcon('friends', 'friends-filled'),
-              }}
-            />
-            <Tabs.Screen
-              name="profile"
-              options={{ title: 'Profil', tabBarIcon: tabIcon('profile', 'profile-filled') }}
-            />
-            </Tabs>
+            <AuthProvider>
+              <StatusBar style="light" />
+              {/*
+                SessionGate reads the auth state inside the AuthProvider and redirects
+                to sign-in when no session exists. The Slot inside it renders the
+                matched child segment — (auth) gets its own Stack, (tabs) gets its own
+                Tab navigator. This root layout does not prescribe either one.
+              */}
+              <SessionGate>
+                <Slot />
+              </SessionGate>
+            </AuthProvider>
           </QueryClientProvider>
         </SafeAreaProvider>
       </View>

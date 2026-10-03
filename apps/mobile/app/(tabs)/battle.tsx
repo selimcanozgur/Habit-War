@@ -21,8 +21,8 @@ import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 
-import { ApiError } from '../src/api/client';
-import { getProfile } from '../src/api/profile';
+import { ApiError } from '../../src/api/client';
+import { getProfile } from '../../src/api/profile';
 import {
   acceptChallenge,
   createChallenge,
@@ -37,13 +37,13 @@ import {
   normaliseLeaderboard,
   normaliseSeason,
   type Challenge,
-} from '../src/api/social';
-import { Button, ChipButton, cardStyle } from '../src/components/Button';
-import { DuelCard } from '../src/components/DuelCard';
-import { Icon, type IconName } from '../src/components/Icon';
-import { ScreenHero } from '../src/components/ScreenHero';
-import { UserRow } from '../src/components/UserRow';
-import { colors, radius, spacing, type } from '../src/theme';
+} from '../../src/api/social';
+import { Button, ChipButton, cardStyle } from '../../src/components/Button';
+import { DuelCard } from '../../src/components/DuelCard';
+import { Icon, type IconName } from '../../src/components/Icon';
+import { ScreenHero } from '../../src/components/ScreenHero';
+import { UserRow } from '../../src/components/UserRow';
+import { colors, radius, spacing, type } from '../../src/theme';
 
 import type { Category } from '@habitwar/domain';
 
