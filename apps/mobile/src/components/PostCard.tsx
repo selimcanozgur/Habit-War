@@ -6,13 +6,14 @@
  *
  *  - `DAILY_DIGEST` is the spec's anti-spam default (§5.1): a whole day rolled into
  *    one row — "Selimcan bugün 3 seans, 145 XP". It renders as a stat strip on a
- *    recessed fill, with the numbers at display size, since the numbers *are* the
- *    content.
+ *    light recessed fill, with the numbers at display size, since the numbers *are*
+ *    the content.
  *  - `SESSION_COMPLETE` is a single session the user chose to share — "30 dk okudu,
  *    +42 XP". It renders as one inline line with no fill behind it, deliberately
  *    quieter than a digest so a shared session never out-shouts a day's work.
- *  - `LEVEL_UP` and `ACHIEVEMENT` are celebrations: the whole card takes the accent
- *    tint and border, and a filled disc leads the row.
+ *  - `LEVEL_UP` and `ACHIEVEMENT` are celebrations: a tinted icon leads the row. The
+ *    card itself stays a card — the icon and the words say "celebration" without the
+ *    whole surface changing colour.
  *  - Everything else is plain text, which is what an unknown future type degrades to.
  *
  * Moderation is not optional here. App Store guideline 1.2 requires a report and a
@@ -118,10 +119,9 @@ function PostCardImpl({ post, onToggleLike, onReport, onBlock }: PostCardProps):
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
   const initial = (post.author.displayName.trim()[0] ?? '?').toLocaleUpperCase('tr-TR');
-  const celebration = isCelebration(post.type);
 
   return (
-    <Animated.View style={[styles.card, celebration && styles.cardCelebration]}>
+    <Animated.View style={styles.card}>
       {/*
         The long-press target deliberately does NOT wrap the whole card.
         react-native-web renders every Pressable as a <button>, and HTML forbids a
@@ -146,16 +146,11 @@ function PostCardImpl({ post, onToggleLike, onReport, onBlock }: PostCardProps):
           accessibilityRole="button"
           accessibilityLabel={`${post.author.displayName} gönderisi. Seçenekler için uzun bas.`}
         >
-          <View style={styles.nameRow}>
-            <Text style={styles.displayName} numberOfLines={1}>
-              {post.author.displayName}
-            </Text>
-            <View style={styles.levelBadge}>
-              <Text style={styles.levelBadgeText}>Sv {post.author.level}</Text>
-            </View>
-          </View>
+          <Text style={styles.displayName} numberOfLines={1}>
+            {post.author.displayName}
+          </Text>
           <Text style={styles.meta} numberOfLines={1}>
-            @{post.author.username} · {formatRelativeTime(post.createdAt)}
+            Sv {post.author.level} · {formatRelativeTime(post.createdAt)}
           </Text>
         </Pressable>
 
@@ -251,11 +246,6 @@ function PostCardImpl({ post, onToggleLike, onReport, onBlock }: PostCardProps):
   );
 }
 
-/** Level-ups and achievements get the tinted treatment. */
-function isCelebration(postType: Post['type']): boolean {
-  return postType === 'LEVEL_UP' || postType === 'ACHIEVEMENT';
-}
-
 /**
  * The type-specific middle of the card.
  *
@@ -275,8 +265,8 @@ function PostBody({ post }: { readonly post: Post }): React.JSX.Element {
 
           {stats && (
             <View style={styles.statStrip}>
-              <StatChip value={`${stats.sessionCount}`} label="SEANS" />
-              <StatChip value={`${stats.totalMinutes}`} label="DAKİKA" />
+              <StatChip value={`${stats.sessionCount}`} label="seans" />
+              <StatChip value={`${stats.totalMinutes}`} label="dakika" />
               <StatChip value={`+${stats.totalXp}`} label="XP" highlight />
             </View>
           )}
@@ -327,7 +317,7 @@ function PostBody({ post }: { readonly post: Post }): React.JSX.Element {
         <View style={styles.body}>
           <View style={styles.celebrationRow}>
             <View style={[styles.celebrationDisc, styles.celebrationDiscLevel]}>
-              <Icon name="xp-bolt-filled" size={ICON_SIZE_DISC} color={colors.textOnAccent} />
+              <Icon name="xp-bolt-filled" size={ICON_SIZE_DISC} color={colors.xp} />
             </View>
             <Text style={styles.celebrationText}>
               {post.level !== undefined
@@ -344,7 +334,7 @@ function PostBody({ post }: { readonly post: Post }): React.JSX.Element {
         <View style={styles.body}>
           <View style={styles.celebrationRow}>
             <View style={[styles.celebrationDisc, styles.celebrationDiscBadge]}>
-              <Icon name="medal" size={ICON_SIZE_DISC} color={colors.textOnAccent} />
+              <Icon name="medal" size={ICON_SIZE_DISC} color={colors.goldDark} />
             </View>
             <Text style={styles.celebrationText}>
               {post.achievementName
@@ -361,7 +351,7 @@ function PostBody({ post }: { readonly post: Post }): React.JSX.Element {
         <View style={styles.body}>
           <View style={styles.duelRow}>
             <Icon name="flame-filled" size={ICON_SIZE_SMALL} color={colors.fire} />
-            <Text style={styles.duelLabel}>DÜELLO SONUCU</Text>
+            <Text style={styles.duelLabel}>Düello sonucu</Text>
           </View>
           <Text style={styles.content}>{post.content || 'Bir düello tamamlandı.'}</Text>
         </View>
@@ -431,11 +421,6 @@ const DISC = 40;
 
 const styles = StyleSheet.create({
   card: { ...cardStyle, gap: spacing.sm },
-  /**
-   * A celebration is the one card allowed to colour itself. The tint plus the accent
-   * border is enough — no shadow, because in this language depth is an edge.
-   */
-  cardCelebration: { borderColor: colors.xp, backgroundColor: colors.xpSoft },
 
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   avatar: {
@@ -444,22 +429,15 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: colors.surfaceRaised,
   },
+  /** Neutral, like a contact without a photo: an avatar is not a control, so not violet. */
   avatarFallback: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.accentSoft,
+    backgroundColor: colors.surfaceSunken,
   },
-  avatarInitial: { ...type.heading, color: colors.accentDark },
+  avatarInitial: { ...type.heading, color: colors.textMuted },
   headerText: { flex: 1, gap: 2 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  displayName: { ...type.heading, color: colors.text, flexShrink: 1 },
-  levelBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 1,
-    borderRadius: radius.pill,
-    backgroundColor: colors.xp,
-  },
-  levelBadgeText: { ...type.caption, color: colors.textOnAccent },
+  displayName: { ...type.heading, color: colors.text },
   meta: { ...type.caption, color: colors.textFaint },
   menuButton: { paddingHorizontal: spacing.xs, paddingVertical: spacing.xs },
 
@@ -474,26 +452,20 @@ const styles = StyleSheet.create({
 
   digestHeadline: { ...type.heading, color: colors.text },
   digestFootnote: { ...type.caption, color: colors.textMuted },
-  /**
-   * A stone band inset into the parchment. Dark rather than merely recessed because
-   * a day's totals are the one thing on this card that should read as a readout —
-   * and on parchment the only way to get that is to change the ground, not the tint.
-   */
+  /** A light recessed band: the day's totals read as a readout without a dark slab. */
   statStrip: {
     flexDirection: 'row',
     gap: spacing.sm,
-    backgroundColor: colors.stone,
+    backgroundColor: colors.surfaceRaised,
     borderRadius: radius.md,
-    borderWidth: 2,
-    borderColor: colors.frame,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.sm,
   },
   statChip: { flex: 1, alignItems: 'center', gap: 2 },
   /** Display size: on a digest the number is the post. */
-  statChipValue: { ...type.display, color: colors.textOnDark },
-  statChipValueHighlight: { color: colors.success },
-  statChipLabel: { ...type.overline, color: colors.textOnDarkMuted },
+  statChipValue: { ...type.display, color: colors.text },
+  statChipValueHighlight: { color: colors.successDark },
+  statChipLabel: { ...type.caption, color: colors.textMuted },
 
   sessionRow: {
     flexDirection: 'row',
@@ -508,18 +480,17 @@ const styles = StyleSheet.create({
   celebrationDisc: {
     width: DISC,
     height: DISC,
-    borderRadius: radius.pill,
+    borderRadius: radius.sm + 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  celebrationDiscLevel: { backgroundColor: colors.xp },
+  celebrationDiscLevel: { backgroundColor: colors.xpSoft },
   /** Warmth for a badge, so the two celebrations are not the same card twice. */
-  celebrationDiscBadge: { backgroundColor: colors.gold },
-  // The *dark* step rather than the bright one: the text sits on the tinted fill.
-  celebrationText: { ...type.heading, color: colors.xpDark, flex: 1 },
+  celebrationDiscBadge: { backgroundColor: colors.goldSoft },
+  celebrationText: { ...type.heading, color: colors.text, flex: 1 },
 
   duelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  duelLabel: { ...type.overline, color: colors.fireDark },
+  duelLabel: { ...type.label, color: colors.fireDark },
 
   /** A tinted tray, so the open menu reads as attached to this card and not the list. */
   menu: {

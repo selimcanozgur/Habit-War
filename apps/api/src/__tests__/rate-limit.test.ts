@@ -127,6 +127,20 @@ describe('keying', () => {
     // A different route has its own counter; exhausting one must not close the app.
     expect((await get('/v1/habits', userA)).statusCode).toBe(200);
   });
+
+  /**
+   * The reverse direction, and the one users actually hit: ordinary browsing must not
+   * spend a tight route's budget. With one shared counter, a user who opened a few
+   * screens (each fans out into several GETs) found session start — limited to 10 a
+   * minute — already "exhausted" before they had started a single session.
+   */
+  it('does not let ordinary traffic spend a tight route\'s budget', async () => {
+    for (let i = 0; i < EXPORT_LIMIT * 4; i++) {
+      expect((await get('/v1/habits', userA)).statusCode).toBe(200);
+    }
+
+    expect((await get('/v1/me/export', userA)).statusCode).toBe(200);
+  });
 });
 
 describe('exemptions', () => {

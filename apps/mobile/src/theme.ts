@@ -1,15 +1,15 @@
 /**
  * Visual tokens.
  *
- * The language is a parchment RPG: warm aged-paper cards on dark stone, with the
- * saturated colours reserved for the things a player tracks — XP, fire, gold,
- * completion. It suits the product because the spec's whole premise is that a level
- * is earned rather than displayed, and paper reads as a record where a flat white
- * card reads as a form.
- *
- * Two grounds, used deliberately:
- *  - Cards, sheets and anything holding content sit on PARCHMENT.
- *  - The tab bar, hero overlays and RPG panels sit on STONE.
+ * The palette is the one in DESIGN.md, applied with restraint: content first, colour
+ * only where it means something.
+ *  - The page is a neutral grouped ground (Fog) and content sits on borderless Paper
+ *    White cards. Hierarchy comes from type and spacing, not from boxes and edges.
+ *  - Electric Violet is the one interactive colour: buttons, links, the active tab.
+ *  - Sunbeam Yellow is reward and rank — gold stars, the first-place disc — never a
+ *    surface.
+ *  - Carbon is ink. Dark grounds survive only where text sits over an illustration.
+ *  - Status hues (XP, fire, success, danger) mark state, never decoration.
  * Text colour follows the ground, never the other way round.
  *
  * Every screen reads from these names. Changing a value here re-skins the app, which
@@ -17,48 +17,56 @@
  */
 
 import type { Stat } from '@habitwar/domain';
+import { StyleSheet } from 'react-native';
 
 export const colors = {
-  /** Page ground behind the cards. Dark, so parchment reads as lit. */
-  bg: '#1D2A35',
-  /** Darkest surface: tab bar, bottom sheets, overlay panels. */
-  stone: '#1E1E1C',
-  /** The RPG panel — a season banner, a duel board. */
-  panel: '#1D2A35',
-  /** Wood and stone framing between a dark panel and its content. */
-  frame: '#413425',
+  /** Page ground behind the cards. Fog: neutral, so the cards and the one accent carry the screen. */
+  bg: '#EFEFEF',
+  /** Darkest surface: tab bar, bottom sheets, overlay panels. Carbon. */
+  stone: '#312F27',
+  /** The RPG panel — a season banner, a duel board. Carbon, like every dark surface: the palette has one dark. */
+  panel: '#312F27',
+  /** Framing on a dark panel, chips and tracks inside one. Slate Gray, which carries white text. */
+  frame: '#788086',
 
-  /** Card ground. The app's main reading surface. */
-  surface: '#F8E3C2',
-  /** A recess inside a card: a progress track, an empty slot, a stat strip. */
-  surfaceRaised: '#EBCDA1',
-  /** Deeper recess, for a track that must read as cut into the page. */
-  surfaceSunken: '#DCBA8B',
+  /** Card ground. The app's main reading surface. Paper White. */
+  surface: '#FFFFFF',
+  /** A recess inside a card: a progress track, an empty slot, a stat strip. Fog. */
+  surfaceRaised: '#EFEFEF',
+  /** Deeper recess, for a track that must read as cut into the page. Sand. */
+  surfaceSunken: '#E9E4D9',
 
-  /** Card edge. Warm, never grey — grey on parchment reads as dirt. */
-  border: '#D9B681',
-  borderStrong: '#B9915C',
+  /** Hairline separators between rows inside a card. Cards themselves have no edge. */
+  border: '#E9E4D9',
+  /** Ash, for the rare edge that has to read — an input, an unearned badge. */
+  borderStrong: '#B1AFA7',
 
-  /** Ink on parchment. */
-  text: '#2A2118',
-  textMuted: '#6B5744',
-  textFaint: '#9C8769',
-  /** Text on any dark ground — stone, panel, hero overlay. */
-  textOnDark: '#F2F5F7',
-  textOnDarkMuted: '#B9C3CB',
+  /** Ink on paper and on the yellow page. Carbon — warmer than black, and it does not vibrate on yellow. */
+  text: '#312F27',
+  textMuted: '#5F5C52',
+  /**
+   * Metadata and placeholders. Darker than Ash: Ash is a border colour, and at 2.2:1
+   * on white it is not readable as text.
+   */
+  textFaint: '#8A877D',
+  /** Text on any dark ground — carbon, panel, hero overlay. */
+  textOnDark: '#FFFFFF',
+  textOnDarkMuted: '#B1AFA7',
   /** Text on a saturated fill. */
   textOnAccent: '#FFFFFF',
 
-  /** Primary. Every "go" action and every icon that is not a status. */
-  accent: '#2072BB',
-  accentDark: '#155690',
-  accentBright: '#3F95D2',
-  accentSoft: '#DCEAF6',
+  /** Primary. Electric Violet: every "go" action, every link, every icon that is not a status. */
+  accent: '#7700FF',
+  /** The bottom of the violet gradient — a pressed control's slab. */
+  accentDark: '#5C00FF',
+  /** The top of the violet gradient. */
+  accentBright: '#9400FF',
+  accentSoft: '#EFE5FF',
 
-  /** XP and anything magical: progress bars, level badges, the duel bar. */
-  xp: '#9B5EF9',
-  xpDark: '#7A3FD6',
-  xpSoft: '#EDE2FE',
+  /** XP and anything magical: progress bars, level badges, the duel bar. The violet family, a shade off the accent. */
+  xp: '#9400FF',
+  xpDark: '#5C00FF',
+  xpSoft: '#F1E3FF',
 
   /** Done, complete, ahead. Never a call to action. */
   success: '#30AF29',
@@ -70,10 +78,10 @@ export const colors = {
   fireDark: '#BC5A24',
   fireSoft: '#FBE7DA',
 
-  /** Rewards, rank, rarity. */
-  gold: '#D2AE78',
-  goldDark: '#A8854F',
-  goldSoft: '#F6EBD9',
+  /** Rewards, rank, rarity. Sunbeam Yellow — on dark grounds and as a fill; goldDark is the one that reads as text on white. */
+  gold: '#FFC500',
+  goldDark: '#8F6A00',
+  goldSoft: '#FFF3CC',
 
   danger: '#C4452F',
   dangerDark: '#9A3423',
@@ -92,7 +100,7 @@ export const statColors: Readonly<Record<Stat, string>> = {
   INT: '#2072BB',
   WIS: '#30AF29',
   CHA: '#C44E8E',
-  DEX: '#9B5EF9',
+  DEX: '#9400FF',
 };
 
 export const statLabels: Readonly<Record<Stat, string>> = {
@@ -109,10 +117,10 @@ export const categoryColors: Readonly<Record<string, string>> = {
   FITNESS: '#C4452F',
   STUDY: '#2072BB',
   MINDFULNESS: '#30AF29',
-  CREATIVE: '#9B5EF9',
+  CREATIVE: '#9400FF',
   SOCIAL: '#E37537',
   HEALTH: '#C44E8E',
-  SKILL: '#D2AE78',
+  SKILL: '#8F6A00',
 };
 
 export const categoryLabels: Readonly<Record<string, string>> = {
@@ -135,23 +143,14 @@ export const spacing = {
 } as const;
 
 export const radius = {
-  sm: 10,
-  md: 14,
-  lg: 18,
+  sm: 8,
+  md: 12,
+  lg: 16,
   pill: 999,
 } as const;
 
-/**
- * The depth of a control's bottom edge.
- *
- * A solid control sits on a darker slab of itself and compresses into it on press.
- * It reads as physical in a way a shadow does not, and on a warm ground a soft grey
- * shadow just looks like a smudge.
- */
-export const depth = {
-  button: 4,
-  card: 3,
-} as const;
+/** One hairline for every separator, so rows divide the same way on every screen. */
+export const hairline = StyleSheet.hairlineWidth;
 
 /**
  * Height of the illustrated header each screen opens with.
@@ -173,7 +172,7 @@ export const heroHeightTall = 330;
 /**
  * Font family names, registered in app/_layout.tsx.
  *
- * Nunito's rounded, heavy forms sit far better on parchment than a geometric sans;
+ * Nunito's rounded, heavy forms suit the playful tone better than a geometric sans;
  * the fallback matters because fonts load asynchronously and a screen rendered
  * before they arrive must not reflow on a different metric.
  */

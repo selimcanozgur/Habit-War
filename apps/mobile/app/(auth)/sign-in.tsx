@@ -2,7 +2,7 @@
  * Giriş ekranı.
  *
  * Yeni kullanıcı buraya gelince kayıt ekranına geçebilir; şifresini unutursa sıfırlama
- * ekranına. Tasarım, parchment temasına uyuyor — açık kağıt rengi yüzey, koyu çerçeve.
+ * ekranına. Tasarım sade: beyaz zemin, dolgulu alanlar, tek bir violet eylem.
  */
 
 import { router } from 'expo-router';
@@ -189,7 +189,7 @@ export default function SignInScreen(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
+  safe: { flex: 1, backgroundColor: colors.surface },
   avoid: { flex: 1 },
   scroll: { flex: 1 },
 
@@ -201,7 +201,7 @@ const styles = StyleSheet.create({
   },
 
   header: { gap: spacing.xs },
-  title: { ...type.heading, color: colors.text },
+  title: { ...type.hero, color: colors.text },
   subtitle: { ...type.body, color: colors.textMuted },
 
   form: { gap: spacing.md },
@@ -209,8 +209,6 @@ const styles = StyleSheet.create({
   banner: {
     backgroundColor: colors.dangerSoft,
     borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.danger,
     padding: spacing.md,
   },
   bannerText: { ...type.body, color: colors.danger },

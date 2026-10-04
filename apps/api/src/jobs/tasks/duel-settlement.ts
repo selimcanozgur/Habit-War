@@ -16,15 +16,17 @@
  * makes "settled" and "both players were told" a single fact rather than two that can
  * drift. A retry after a crash either redoes both or neither.
  *
- * SCORING IS NOT REIMPLEMENTED HERE. `ChallengeService.scoreFor` derives a side's
- * total from XpLedger with the flagged-session and category rules already applied;
+ * SCORING IS NOT REIMPLEMENTED HERE. `ChallengeService.sideScore` derives a side's
+ * total — undisputed check-in days for a task duel, XpLedger with the flagged-session
+ * and category rules applied for a legacy one — and `payDuelSettlement` pays a task
+ * duel's bonuses;
  * a second copy of that query in a job is how a duel settled by a job would start
  * disagreeing with the same duel settled by a screen refresh.
  */
 
 import type { Prisma } from '@prisma/client';
 
-import { ChallengeService } from '../../modules/game/challenges.js';
+import { ChallengeService, payDuelSettlement } from '../../modules/game/challenges.js';
 import { copy, type DuelOutcome } from '../../modules/notifications/copy.js';
 import { DUEL_SETTLEMENT_BATCH_SIZE } from '../constants.js';
 import type { JobContext, JobOutcome } from '../context.js';
@@ -83,11 +85,12 @@ function resultNotification(
   ownXp: number,
   opponentXp: number,
   now: Date,
+  task: { readonly bonusXp: number } | null,
 ): Prisma.NotificationCreateManyInput | null {
   if (participant.deletedAt !== null) return null;
 
   const outcome = duelOutcomeFor(participant.id, winnerId);
-  const text = copy.challengeEnded(outcome, ownXp, opponentXp);
+  const text = copy.challengeEnded(outcome, ownXp, opponentXp, task);
 
   return {
     userId: participant.id,
@@ -138,8 +141,8 @@ export async function runDuelSettlement(context: JobContext): Promise<DuelSettle
     }
 
     const [challengerXp, opponentXp] = await Promise.all([
-      challenges.scoreFor(challenge.challengerId, challenge.category, startsAt, endsAt),
-      challenges.scoreFor(challenge.opponentId, challenge.category, startsAt, endsAt),
+      challenges.sideScore(challenge, challenge.challengerId, endsAt),
+      challenges.sideScore(challenge, challenge.opponentId, endsAt),
     ]);
 
     const winnerId = decideDuelWinner(challenge, challengerXp, opponentXp);
@@ -159,6 +162,10 @@ export async function runDuelSettlement(context: JobContext): Promise<DuelSettle
       });
       if (update.count === 0) return { settled: false, notifications: 0 };
 
+      // Paid under the same guard and in the same transaction as the status flip.
+      const bonuses = await payDuelSettlement(tx, challenge, challengerXp, opponentXp, now);
+      const isTask = challenge.task !== null;
+
       const rows = [
         resultNotification(
           challenge.challenger,
@@ -167,6 +174,7 @@ export async function runDuelSettlement(context: JobContext): Promise<DuelSettle
           challengerXp,
           opponentXp,
           now,
+          isTask ? { bonusXp: bonuses.challengerBonus } : null,
         ),
         resultNotification(
           challenge.opponent,
@@ -175,6 +183,7 @@ export async function runDuelSettlement(context: JobContext): Promise<DuelSettle
           opponentXp,
           challengerXp,
           now,
+          isTask ? { bonusXp: bonuses.opponentBonus } : null,
         ),
       ].filter((row): row is Prisma.NotificationCreateManyInput => row !== null);
 

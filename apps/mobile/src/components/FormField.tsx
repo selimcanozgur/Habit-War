@@ -7,7 +7,7 @@
  *  - The error sits under the field it belongs to, not in a banner at the top. A
  *    banner makes the user hunt for which field it means.
  *  - An errored field is outlined *and* captioned. Colour alone fails for anyone who
- *    cannot distinguish the red from the parchment border.
+ *    cannot distinguish red, so the caption says it in words.
  *  - The password visibility toggle is a real button with a label, because typing a
  *    password blind on a phone keyboard is how people end up locked out of accounts
  *    they created correctly.
@@ -91,8 +91,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.surfaceRaised,
     borderRadius: radius.md,
-    borderWidth: 2,
-    borderColor: colors.border,
+    // Transparent until it has something to say: the fill marks the field, and an
+    // edge appears only for an error, so the error is the one thing that stands out.
+    borderWidth: 1.5,
+    borderColor: 'transparent',
     paddingHorizontal: spacing.md,
   },
   inputRowError: { borderColor: colors.danger },

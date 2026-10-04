@@ -1,22 +1,16 @@
 /**
  * The app's button.
  *
- * The whole point is the bottom edge. A solid control sits on a darker slab of
- * itself and compresses into it when pressed — which reads as physical in a way a
- * shadow does not, and unlike a shadow it survives on a white screen where soft
- * shadows disappear.
- *
- * Implemented as two stacked views rather than a border: a bottom border would move
- * the content on press, and animating a border width is not worklet-friendly. The
- * outer view is the slab, the inner one slides down onto it.
+ * Flat, filled, and quiet about it. The label and the fill carry the action; there is
+ * no slab, outline or shadow competing with the content around it. Pressing dims the
+ * face, which is the feedback iOS users already read as "this registered".
  */
 
 import * as Haptics from 'expo-haptics';
 import { useCallback } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { ActivityIndicator, Pressable, StyleSheet, Text, type ViewStyle } from 'react-native';
 
-import { colors, depth, radius, spacing, type } from '../theme';
+import { colors, radius, spacing, type } from '../theme';
 
 export type ButtonTone = 'primary' | 'success' | 'xp' | 'danger' | 'neutral';
 export type ButtonSize = 'large' | 'small';
@@ -34,19 +28,16 @@ export interface ButtonProps {
   readonly style?: ViewStyle;
 }
 
-const TONES: Readonly<Record<ButtonTone, { face: string; edge: string; label: string }>> = {
-  primary: { face: colors.accent, edge: colors.accentDark, label: colors.textOnAccent },
-  success: { face: colors.success, edge: colors.successDark, label: colors.textOnAccent },
+const TONES: Readonly<Record<ButtonTone, { face: string; label: string }>> = {
+  primary: { face: colors.accent, label: colors.textOnAccent },
+  success: { face: colors.success, label: colors.textOnAccent },
   // Anything that spends or advances progression rather than merely navigating.
-  xp: { face: colors.xp, edge: colors.xpDark, label: colors.textOnAccent },
-  danger: { face: colors.danger, edge: colors.dangerDark, label: colors.textOnAccent },
-  // The quiet one: a parchment face on a warm edge, for anything that is not the
-  // action the screen is asking for.
-  neutral: { face: colors.surface, edge: colors.borderStrong, label: colors.text },
+  xp: { face: colors.xp, label: colors.textOnAccent },
+  danger: { face: colors.danger, label: colors.textOnAccent },
+  // The quiet one: a tinted face for anything that is not the action the screen is
+  // asking for. Still reads as pressable without competing with the primary.
+  neutral: { face: colors.accentSoft, label: colors.accent },
 };
-
-/** Fast enough to feel like a physical press rather than an animation. */
-const PRESS_MS = 60;
 
 export function Button({
   label,
@@ -59,21 +50,8 @@ export function Button({
   accessibilityLabel,
   style,
 }: ButtonProps): React.JSX.Element {
-  const press = useSharedValue(0);
   const palette = TONES[tone];
   const inert = disabled || loading;
-
-  const faceStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: press.value * depth.button }],
-  }));
-
-  const handlePressIn = useCallback(() => {
-    press.value = withTiming(1, { duration: PRESS_MS });
-  }, [press]);
-
-  const handlePressOut = useCallback(() => {
-    press.value = withTiming(0, { duration: PRESS_MS });
-  }, [press]);
 
   const handlePress = useCallback(() => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -83,55 +61,36 @@ export function Button({
   return (
     <Pressable
       onPress={handlePress}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
       disabled={inert}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ disabled: inert, busy: loading }}
-      style={[
-        styles.slab,
-        { backgroundColor: palette.edge },
+      style={({ pressed }) => [
+        styles.face,
+        size === 'small' ? styles.faceSmall : styles.faceLarge,
+        { backgroundColor: palette.face },
         block && styles.block,
+        pressed && styles.pressed,
         inert && styles.inert,
         style,
       ]}
     >
-      <Animated.View
-        style={[
-          styles.face,
-          size === 'small' ? styles.faceSmall : styles.faceLarge,
-          {
-            backgroundColor: palette.face,
-            // The neutral tone is the only one that needs an outline; a white face
-            // on a grey slab would otherwise have no edge of its own.
-            borderWidth: tone === 'neutral' ? 2 : 0,
-            borderColor: colors.border,
-          },
-          faceStyle,
-        ]}
-      >
-        {loading ? (
-          <ActivityIndicator color={palette.label} />
-        ) : (
-          <Text
-            style={[
-              size === 'small' ? styles.labelSmall : styles.labelLarge,
-              { color: palette.label },
-            ]}
-            numberOfLines={1}
-          >
-            {label}
-          </Text>
-        )}
-      </Animated.View>
+      {loading ? (
+        <ActivityIndicator color={palette.label} />
+      ) : (
+        <Text
+          style={[size === 'small' ? styles.labelSmall : styles.labelLarge, { color: palette.label }]}
+          numberOfLines={1}
+        >
+          {label}
+        </Text>
+      )}
     </Pressable>
   );
 }
 
 /**
  * A small pill for a secondary action inside a row — accept, decline, cancel.
- * Shares the palette but not the slab: at this size the edge reads as clutter.
  */
 export function ChipButton({
   label,
@@ -150,11 +109,7 @@ export function ChipButton({
       accessibilityLabel={accessibilityLabel ?? label}
       style={({ pressed }) => [
         styles.chip,
-        {
-          backgroundColor: palette.face,
-          borderColor: tone === 'neutral' ? colors.border : palette.edge,
-          opacity: disabled ? 0.45 : pressed ? 0.8 : 1,
-        },
+        { backgroundColor: palette.face, opacity: disabled ? 0.45 : pressed ? 0.7 : 1 },
       ]}
     >
       <Text style={[styles.chipLabel, { color: palette.label }]} numberOfLines={1}>
@@ -165,40 +120,32 @@ export function ChipButton({
 }
 
 const styles = StyleSheet.create({
-  slab: {
-    borderRadius: radius.md,
-    // The slab is exactly `depth` taller than the face; the face covers all of it
-    // at rest and none of it when pressed.
-    paddingBottom: depth.button,
-  },
-  block: { alignSelf: 'stretch' },
-  inert: { opacity: 0.45 },
-
   face: {
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  faceLarge: { paddingVertical: spacing.md, paddingHorizontal: spacing.lg },
-  faceSmall: { paddingVertical: spacing.sm + 2, paddingHorizontal: spacing.md },
+  faceLarge: { minHeight: 50, paddingHorizontal: spacing.lg },
+  faceSmall: { minHeight: 36, paddingHorizontal: spacing.md },
+  block: { alignSelf: 'stretch' },
+  pressed: { opacity: 0.7 },
+  inert: { opacity: 0.4 },
 
-  labelLarge: { ...type.heading, letterSpacing: 0.3 },
+  labelLarge: { ...type.heading },
   labelSmall: { ...type.label },
 
   chip: {
-    paddingVertical: spacing.sm,
+    minHeight: 32,
+    justifyContent: 'center',
     paddingHorizontal: spacing.md,
     borderRadius: radius.pill,
-    borderWidth: 2,
   },
   chipLabel: { ...type.label },
 });
 
-/** Shared card surface, so every screen's container is the same object. */
+/** Shared card surface, so every screen's container is the same object. No edge: the fill against the page is enough. */
 export const cardStyle: ViewStyle = {
   backgroundColor: colors.surface,
   borderRadius: radius.lg,
-  borderWidth: 2,
-  borderColor: colors.border,
   padding: spacing.md,
 };

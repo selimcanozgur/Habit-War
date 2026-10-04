@@ -86,7 +86,7 @@ export const ROUTE_LIMITS: Readonly<Record<string, { max: number; timeWindow: nu
  * Bearer tokens are hashed before use. A rate-limit key is stored in Redis and can
  * appear in logs; a session token must not be in either.
  */
-function rateLimitKey(request: FastifyRequest): string {
+function credentialKey(request: FastifyRequest): string {
   const authorization = request.headers.authorization;
   if (authorization?.toLowerCase().startsWith('bearer ')) {
     const token = authorization.slice(7).trim();
@@ -106,6 +106,23 @@ function rateLimitKey(request: FastifyRequest): string {
 function routeKey(request: FastifyRequest): string | null {
   const url = request.routeOptions?.url;
   return url ? `${request.method}:${url}` : null;
+}
+
+/**
+ * The counter a request is charged to: the caller's, and — for a route with its own
+ * budget — that route's.
+ *
+ * @fastify/rate-limit keeps one store for every route registered without a per-route
+ * `config.rateLimit`, and keys it on this function alone. The overrides above vary
+ * only `max`, so without the route in the key every request a user made counted
+ * against every limit: a few screens of ordinary GETs and session start (10/min) was
+ * already "exhausted" before the user had started anything. Routes without an
+ * override still share one counter, which is what the global ceiling means.
+ */
+function rateLimitKey(request: FastifyRequest): string {
+  const credential = credentialKey(request);
+  const route = routeKey(request);
+  return route !== null && ROUTE_LIMITS[route] ? `${credential}|${route}` : credential;
 }
 
 async function rateLimitPlugin(app: FastifyInstance, options: { env: Env }): Promise<void> {

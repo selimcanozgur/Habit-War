@@ -7,8 +7,15 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { isStatAllowedForCategory, resolveStat, type Category, type Stat } from '@habitwar/domain';
+import {
+  isStatAllowedForCategory,
+  localDateKey,
+  resolveStat,
+  type Category,
+  type Stat,
+} from '@habitwar/domain';
 
+import { startOfLocalDay } from '../../lib/calendar.js';
 import { unprocessable, notFound } from '../../lib/errors.js';
 import { definedOnly } from '../../lib/objects.js';
 import { createHabitBody, habitIdParams, updateHabitBody } from './schemas.js';
@@ -21,7 +28,31 @@ export async function habitRoutes(app: FastifyInstance): Promise<void> {
       where: { userId: request.userId, isArchived: false },
       orderBy: { createdAt: 'asc' },
     });
-    return { habits };
+
+    // Count habits carry today's running total, so the row can show "30 / 50".
+    const counted = habits.filter((habit) => habit.kind === 'COUNT');
+    if (counted.length === 0) return { habits };
+    const user = await app.prisma.user.findUniqueOrThrow({
+      where: { id: request.userId },
+      select: { timezone: true },
+    });
+    const now = new Date();
+    const dayStart = startOfLocalDay(localDateKey(now, user.timezone), user.timezone);
+    const totals = await app.prisma.session.groupBy({
+      by: ['habitId'],
+      where: {
+        habitId: { in: counted.map((habit) => habit.id) },
+        status: 'COMPLETED',
+        endedAt: { gte: dayStart },
+      },
+      _sum: { count: true },
+    });
+    const todayByHabit = new Map(totals.map((row) => [row.habitId, row._sum.count ?? 0]));
+    return {
+      habits: habits.map((habit) =>
+        habit.kind === 'COUNT' ? { ...habit, todayCount: todayByHabit.get(habit.id) ?? 0 } : habit,
+      ),
+    };
   });
 
   app.post('/habits', async (request, reply) => {
@@ -37,6 +68,9 @@ export async function habitRoutes(app: FastifyInstance): Promise<void> {
         targetMinutes: body.targetMinutes,
         frequency: body.frequency,
         colorHex: body.colorHex,
+        kind: body.kind,
+        targetCount: body.kind === 'COUNT' ? (body.targetCount ?? null) : null,
+        unit: body.kind === 'COUNT' ? (body.unit ?? null) : null,
       },
     });
     return reply.status(201).send({ habit });

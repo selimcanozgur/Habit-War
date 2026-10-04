@@ -175,6 +175,17 @@ export const OVER_CAP_EFFICIENCY = 0.2;
  */
 export const MAX_SESSION_MINUTES = 240;
 
+/**
+ * Pause budget for one session. A paused session is not abandoned for being slow:
+ * the stale cutoff is measured in wall time and grows by this much, so a session can
+ * sit paused for up to two hours on top of its maximum creditable length before the
+ * sweep closes it.
+ */
+export const MAX_PAUSE_MINUTES = 120;
+
+/** Wall-clock age past which a still-ACTIVE session counts as forgotten. */
+export const STALE_SESSION_MINUTES = MAX_SESSION_MINUTES + MAX_PAUSE_MINUTES;
+
 /** Shortest creditable duration. Below this a session earns nothing. */
 export const MIN_SESSION_MINUTES = 1;
 
@@ -268,3 +279,97 @@ export const ALL_CLASSES: readonly CharacterClass[] = [
   'RANGER',
   'ARTISAN',
 ];
+
+// ---------------------------------------------------------------------------
+// Task duels
+// ---------------------------------------------------------------------------
+//
+// A duel must pay better than training alone, or nobody takes the risk of one. The
+// rewards below sit ON TOP of whatever the same work earns as an ordinary session —
+// the duel is a bonus layer, never a replacement for the session economy.
+//
+// Calibration against REFERENCE_DAILY_XP (75/day): a 5-day duel done every day and
+// won pays 5 x 20 + 30 + 60 = 190 XP, about 38 XP a day, or +50% on the reference
+// day. A perfect draw pays each side 5 x 20 + 30 + 25 = 155. A loser keeps the per-day
+// XP for every day they did — losing a duel you worked at is still worth more than not
+// entering one. A duel nobody worked on pays nothing.
+
+/** XP for each duel day checked in and not disputed. Paid at check-in, reversed on dispute. */
+export const DUEL_DAY_XP = 20;
+
+/**
+ * Check-ins per rolling 24 hours that earn DUEL_DAY_XP, across all of a user's duels.
+ *
+ * Check-ins are self-reported and only the opponent polices them, so two friends who
+ * never dispute each other could mint XP. This bounds that: further check-ins still
+ * score in their duels, they just pay no XP.
+ */
+export const DUEL_DAILY_REWARD_LIMIT = 2;
+
+/** Settlement bonus for the winner. Requires a non-zero score: a 1-0 win is a win, 0-0 is not. */
+export const DUEL_WIN_XP = 60;
+
+/** Settlement bonus for each side of a draw — only when both actually scored. */
+export const DUEL_DRAW_XP = 25;
+
+/** Settlement bonus for checking in on every day of the duel with none disputed. */
+export const DUEL_PERFECT_XP = 30;
+
+/** Live (PENDING + ACTIVE) duels a user may be in at once. Caps the settlement bonuses above. */
+export const DUEL_MAX_LIVE = 3;
+
+/** Bounds on the task text, e.g. "50 şınav". */
+export const DUEL_TASK_MIN_LENGTH = 2;
+export const DUEL_TASK_MAX_LENGTH = 60;
+
+// ---------------------------------------------------------------------------
+// Monster hunts
+// ---------------------------------------------------------------------------
+//
+// Monsters are where XP is SPENT, not where it is made: a session's damage is derived
+// from the XP it already earned, and beating a monster pays a title and a trophy,
+// never XP. However good the game gets, the only way to play it is to do the real
+// thing — and it can never inflate levels or the leaderboard.
+
+/**
+ * A monster's base HP is the XP its unlock level takes to clear (`xpForLevel`), so a
+ * monster at the player's own level is about one level of honest work to beat at full
+ * strength. This floor keeps the very first fights from dying to nothing.
+ */
+export const MONSTER_MIN_HP = 40;
+
+/** Damage multiplier for a session training the monster's weak stat. */
+export const MONSTER_WEAKNESS_MULTIPLIER = 1.5;
+
+/**
+ * Levels in each monster's ladder. Beating a monster raises it a level; the last level
+ * is its boss, and beating the boss is what pays the trophy and the title.
+ */
+export const MONSTER_STAGES = 15;
+
+/**
+ * A monster's HP across its ladder, as a share of its base HP (`xpForLevel` of the
+ * level that unlocks it): level 1 at 40%, rising evenly to 100% at the level before
+ * the boss, and the boss itself at twice the base — the one fight that should take a
+ * real stretch of work.
+ */
+export const MONSTER_FIRST_STAGE_SHARE = 0.4;
+export const MONSTER_BOSS_HP_MULTIPLIER = 2;
+
+// ---------------------------------------------------------------------------
+// Count habits
+// ---------------------------------------------------------------------------
+//
+// A count habit ("50 şınav", "8 bardak su") is logged in quick taps rather than timed.
+// Each log is scored as the ordinary session it is worth, so the whole economy — the
+// category's difficulty, streak, season, daily caps, and the monster it hits — applies
+// unchanged. What it is worth: reaching the day's target counts as a session of
+// COUNT_TARGET_MINUTES, and logging past the target earns nothing more. That bound is
+// the anti-cheat: nobody counts the taps, so no amount of tapping can mint more than
+// one short session's worth a day per habit.
+
+/** Minutes of credit for reaching a count habit's daily target. */
+export const COUNT_TARGET_MINUTES = 15;
+
+/** Largest daily target a count habit may set — "1000 şınav" would be a typo or a lie. */
+export const COUNT_TARGET_MAX = 500;

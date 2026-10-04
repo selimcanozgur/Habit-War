@@ -1,9 +1,24 @@
 /**
- * Duels (spec §5.4): 1v1, one category, 3-7 days, most XP in that category wins.
+ * Duels (spec §5.4): 1v1, 3-7 days.
+ *
+ * TWO KINDS, told apart by `task`:
+ *
+ *  - TASK DUELS (the current kind). Both sides commit to one daily task ("50 şınav")
+ *    and check in once per day of the duel. A check-in counts unless the opponent
+ *    disputes it; most undisputed days wins. Scored in days, not XP, so a veteran's
+ *    streak and class multipliers buy nothing here — the duel is between two people
+ *    on equal terms, and nothing about it can be won by leaving a timer running.
+ *    It also pays: XP per day and bonuses at settlement (balance in
+ *    `@habitwar/domain`), on top of the ordinary session economy, so entering a duel
+ *    is worth more than training alone.
+ *  - LEGACY XP DUELS (task null): most XP in one category wins. Kept so duels opened
+ *    before task duels settle under the rules they were opened with.
+ *
+ * Decisions below that are about the legacy XP scoring are marked as such.
  *
  * Three decisions worth stating, because none of them is forced by the schema:
  *
- *  1. SCORING IS DERIVED, NOT TRUSTED. `Challenge.challengerXp` / `opponentXp` exist
+ *  1. (Legacy XP duels.) SCORING IS DERIVED, NOT TRUSTED. `Challenge.challengerXp` / `opponentXp` exist
  *     as a materialised cache for the polling duel screen, but this module treats
  *     them as a cache only: the authoritative score is recomputed from XpLedger on
  *     every read and written back. The ledger is append-only and already the source
@@ -32,7 +47,24 @@
  *     friendship gate.
  */
 
-import type { Category, Challenge, ChallengeStatus, PrismaClient, User } from '@prisma/client';
+import {
+  DUEL_DAILY_REWARD_LIMIT,
+  DUEL_DAY_XP,
+  DUEL_MAX_LIVE,
+  duelDayIndex,
+  duelLengthDays,
+  duelSettlementReward,
+} from '@habitwar/domain';
+import type {
+  Category,
+  Challenge,
+  ChallengeStatus,
+  DuelCheckIn,
+  Prisma,
+  PrismaClient,
+  User,
+  XpReason,
+} from '@prisma/client';
 
 import { conflict, forbidden, notFound, unprocessable } from '../../lib/errors.js';
 import { copy, type DuelOutcome } from '../notifications/copy.js';
@@ -64,7 +96,9 @@ export interface ChallengeServiceDeps {
 export interface CreateChallengeInput {
   readonly userId: string;
   readonly opponentUsername: string;
-  readonly category: Category;
+  /** The daily task. Null only for legacy XP duels, which tests still create. */
+  readonly task?: string | null;
+  readonly category?: Category | null;
   readonly days: number;
 }
 
@@ -73,7 +107,20 @@ export interface ChallengeParticipant {
   readonly username: string;
   readonly displayName: string;
   readonly avatarUrl: string | null;
+  /** The side's score: XP for a legacy duel, undisputed days for a task duel. */
   readonly xp: number;
+  /** Same number as `xp`, under the name that is true for both kinds. */
+  readonly score: number;
+}
+
+export interface CheckInView {
+  readonly id: string;
+  readonly userId: string;
+  /** One-based day of the duel. */
+  readonly day: number;
+  readonly note: string | null;
+  readonly disputed: boolean;
+  readonly createdAt: Date;
 }
 
 export interface ChallengeView {
@@ -93,6 +140,14 @@ export interface ChallengeView {
   readonly isDraw: boolean;
   /** Null for duels that have not started. Zero on the final day. */
   readonly daysRemaining: number | null;
+  /** The daily task; null for a legacy XP duel. */
+  readonly task: string | null;
+  /** Length in days. Null until accepted. */
+  readonly days: number | null;
+  /** One-based day the duel is on now. Null unless ACTIVE and inside its window. */
+  readonly currentDay: number | null;
+  /** Both sides' check-ins, oldest first. Empty for a legacy duel. */
+  readonly checkIns: readonly CheckInView[];
 }
 
 export interface ListChallengesResult {
@@ -151,7 +206,9 @@ export class ChallengeService {
 
   /** Issues a duel invitation. The row is PENDING; no clock runs until acceptance. */
   async create(input: CreateChallengeInput): Promise<ChallengeView> {
-    const { userId, opponentUsername, category, days } = input;
+    const { userId, opponentUsername, days } = input;
+    const category = input.category ?? null;
+    const task = input.task?.trim() || null;
 
     // Belt and braces: the Zod schema bounds `days` too, but the service is also
     // called from tests and future jobs, and the spec's window is a game rule rather
@@ -202,11 +259,30 @@ export class ChallengeService {
       throw conflict('A duel with this user is already open', { challengeId: existing.id });
     }
 
+    // Live duels per person are capped. Settlement bonuses are paid per duel, so an
+    // uncapped number of duels with agreeable friends would be an XP faucet; the cap
+    // is also simply how many daily tasks a person can honestly keep.
+    const [challengerLive, opponentLive] = await Promise.all([
+      this.#liveCount(userId),
+      this.#liveCount(opponent.id),
+    ]);
+    if (challengerLive >= DUEL_MAX_LIVE) {
+      throw unprocessable(`En fazla ${DUEL_MAX_LIVE} düello aynı anda sürebilir.`, {
+        limit: DUEL_MAX_LIVE,
+      });
+    }
+    if (opponentLive >= DUEL_MAX_LIVE) {
+      throw unprocessable('Bu kullanıcı şu an yeni bir düelloya katılamıyor.', {
+        limit: DUEL_MAX_LIVE,
+      });
+    }
+
     const created = await this.#prisma.challenge.create({
       data: {
         challengerId: userId,
         opponentId: opponent.id,
         category,
+        task,
         status: 'PENDING',
         // startsAt/endsAt stay null until acceptance. Storing the requested length on
         // a PENDING row would mean a duel accepted three days later had already half
@@ -229,7 +305,7 @@ export class ChallengeService {
       userId: opponent.id,
       actorId: userId,
       type: 'CHALLENGE_INVITE',
-      ...copy.challengeInvite(challenger.displayName, category, days),
+      ...copy.challengeInvite(challenger.displayName, category, days, task),
       // CHALLENGE, not USER: the accept and decline buttons live on the duel, and
       // sending the opponent to a profile would make them hunt for the invitation.
       targetType: 'CHALLENGE',
@@ -273,7 +349,7 @@ export class ChallengeService {
       userId: updated.challengerId,
       actorId: userId,
       type: 'CHALLENGE_ACCEPTED',
-      ...copy.challengeAccepted(updated.opponent.displayName, updated.category, days),
+      ...copy.challengeAccepted(updated.opponent.displayName, updated.category, days, updated.task),
       targetType: 'CHALLENGE',
       targetId: updated.id,
     });
@@ -302,8 +378,145 @@ export class ChallengeService {
   }
 
   /**
-   * Duel score: XP the user earned in the duel's category, inside the duel's window,
-   * from sessions the anomaly scan has NOT flagged.
+   * Checks the caller in for today's task on a running task duel.
+   *
+   * Pays DUEL_DAY_XP unless the caller has already been paid for
+   * DUEL_DAILY_REWARD_LIMIT check-ins in the last 24 hours; past that the check-in
+   * still scores in its duel, it just earns nothing.
+   *
+   * Idempotent per day: a second check-in on the same duel day — a double tap, a
+   * retried request — returns the duel unchanged rather than failing or paying twice.
+   * The unique key on (challenge, user, day) is the guard, not a read-then-write.
+   */
+  async checkIn(userId: string, challengeId: string, note: string | null): Promise<ChallengeView> {
+    const challenge = await this.#loadParticipating(userId, challengeId);
+    if (challenge.task === null) {
+      throw unprocessable('Only task duels take check-ins');
+    }
+
+    const now = this.#now();
+    const dayIndex =
+      challenge.status === 'ACTIVE' && challenge.startsAt && challenge.endsAt
+        ? duelDayIndex(challenge.startsAt, challenge.endsAt, now)
+        : null;
+    if (dayIndex === null) {
+      throw unprocessable('This duel is not running', { status: challenge.status });
+    }
+
+    const recentlyPaid = await this.#prisma.duelCheckIn.count({
+      where: {
+        userId,
+        xpAwarded: { gt: 0 },
+        createdAt: { gt: new Date(now.getTime() - MS_PER_DAY) },
+      },
+    });
+    const xp = recentlyPaid < DUEL_DAILY_REWARD_LIMIT ? DUEL_DAY_XP : 0;
+    const task = challenge.task;
+
+    try {
+      await this.#prisma.$transaction(async (tx) => {
+        await tx.duelCheckIn.create({
+          data: {
+            challengeId,
+            userId,
+            dayIndex,
+            note: note?.trim() || null,
+            xpAwarded: xp,
+            createdAt: now,
+          },
+        });
+        if (xp > 0) {
+          await applyDuelXp(tx, userId, xp, 'DUEL_REWARD', `Düello ${dayIndex + 1}. gün: ${task}`, now);
+        }
+      });
+    } catch (error) {
+      // Already checked in today: the designed outcome of a retry, not a failure.
+      if (!isUniqueViolation(error)) throw error;
+    }
+
+    return this.#toView(challenge, userId);
+  }
+
+  /**
+   * Disputes the opponent's check-in. The day stops counting and its XP is taken back.
+   *
+   * Only the other side may dispute, and only while the duel runs — a settled result
+   * does not change under the players. Disputing an already-disputed check-in is a
+   * no-op, so the reversal can never be applied twice.
+   *
+   * The disputed player is told, by name: unlike a duel result, this is a decision the
+   * opponent made about them, and they should know whose it was.
+   */
+  async dispute(userId: string, challengeId: string, checkInId: string): Promise<ChallengeView> {
+    const challenge = await this.#loadParticipating(userId, challengeId);
+    if (challenge.status !== 'ACTIVE') {
+      throw unprocessable('Only a running duel can be disputed', { status: challenge.status });
+    }
+
+    const checkIn = await this.#prisma.duelCheckIn.findFirst({
+      where: { id: checkInId, challengeId },
+    });
+    if (!checkIn) throw notFound('Check-in not found');
+    if (checkIn.userId === userId) {
+      throw forbidden('You cannot dispute your own check-in');
+    }
+
+    const now = this.#now();
+    const day = checkIn.dayIndex + 1;
+    const changed = await this.#prisma.$transaction(async (tx) => {
+      const update = await tx.duelCheckIn.updateMany({
+        where: { id: checkIn.id, disputedAt: null },
+        data: { disputedAt: now },
+      });
+      if (update.count === 0) return false;
+      if (checkIn.xpAwarded > 0) {
+        await applyDuelXp(
+          tx,
+          checkIn.userId,
+          -checkIn.xpAwarded,
+          'DUEL_REVERSAL',
+          `Düello ${day}. gün işaretine itiraz edildi`,
+          now,
+        );
+      }
+      return true;
+    });
+
+    if (changed) {
+      const actor = challenge.challengerId === userId ? challenge.challenger : challenge.opponent;
+      await this.#notifications.createSafely({
+        userId: checkIn.userId,
+        actorId: userId,
+        type: 'CHALLENGE_DISPUTED',
+        ...copy.challengeDisputed(actor.displayName, day),
+        targetType: 'CHALLENGE',
+        targetId: challenge.id,
+      });
+    }
+
+    return this.#toView(challenge, userId);
+  }
+
+  /**
+   * One side's score.
+   *
+   * Task duel: undisputed check-ins. Legacy duel: XP from the ledger, see `scoreFor`.
+   * Settlement and the live read both go through here, so a duel cannot be scored one
+   * way while it runs and another way when it ends.
+   */
+  async sideScore(challenge: Challenge, userId: string, windowEnd: Date): Promise<number> {
+    if (challenge.task !== null) {
+      return this.#prisma.duelCheckIn.count({
+        where: { challengeId: challenge.id, userId, disputedAt: null },
+      });
+    }
+    if (!challenge.startsAt) return 0;
+    return this.scoreFor(userId, challenge.category, challenge.startsAt, windowEnd);
+  }
+
+  /**
+   * (Legacy XP duels.) Duel score: XP the user earned in the duel's category, inside
+   * the duel's window, from sessions the anomaly scan has NOT flagged.
    *
    * Computed from XpLedger rather than from Session.xpAwarded, because the ledger is
    * where corrections and reversals land — a session whose award was later reversed
@@ -353,13 +566,15 @@ export class ChallengeService {
     const windowEnd = new Date(
       Math.min(challenge.endsAt.getTime(), this.#now().getTime()),
     );
-    if (windowEnd <= challenge.startsAt) {
+    // An empty XP window scores nothing. Task duels are exempt: they count check-in
+    // rows, which exist from the first instant of the duel.
+    if (challenge.task === null && windowEnd <= challenge.startsAt) {
       return { challengerXp: 0, opponentXp: 0 };
     }
 
     const [challengerXp, opponentXp] = await Promise.all([
-      this.scoreFor(challenge.challengerId, challenge.category, challenge.startsAt, windowEnd),
-      this.scoreFor(challenge.opponentId, challenge.category, challenge.startsAt, windowEnd),
+      this.sideScore(challenge, challenge.challengerId, windowEnd),
+      this.sideScore(challenge, challenge.opponentId, windowEnd),
     ]);
 
     if (challengerXp !== challenge.challengerXp || opponentXp !== challenge.opponentXp) {
@@ -387,7 +602,9 @@ export class ChallengeService {
    * of them race. Deferring instead meant a duel that ended on Tuesday told nobody
    * until a job that does not exist yet ran, which is the worse failure: the loser
    * never learns they lost, and both players are left with a duel that simply stopped.
-   * When that job lands it calls this same path and inherits the same guarantee.
+   *
+   * Task-duel settlement bonuses are paid in the same transaction as the status
+   * change, under the same guard, so a duel is either settled and paid or neither.
    *
    * Feed posts for the result are still not emitted here; a post is content, and
    * writing content on someone's behalf from a read path is a different decision.
@@ -405,18 +622,8 @@ export class ChallengeService {
     for (const challenge of expired) {
       if (!challenge.startsAt || !challenge.endsAt) continue;
 
-      const challengerXp = await this.scoreFor(
-        challenge.challengerId,
-        challenge.category,
-        challenge.startsAt,
-        challenge.endsAt,
-      );
-      const opponentXp = await this.scoreFor(
-        challenge.opponentId,
-        challenge.category,
-        challenge.startsAt,
-        challenge.endsAt,
-      );
+      const challengerXp = await this.sideScore(challenge, challenge.challengerId, challenge.endsAt);
+      const opponentXp = await this.sideScore(challenge, challenge.opponentId, challenge.endsAt);
 
       // A draw leaves winnerId null; `status` is the authority on "did this finish",
       // exactly as the schema comment states.
@@ -427,16 +634,33 @@ export class ChallengeService {
             ? challenge.opponentId
             : null;
 
-      const settled = await this.#prisma.challenge.updateMany({
-        where: { id: challenge.id, status: 'ACTIVE' },
-        data: { status: 'COMPLETED', challengerXp, opponentXp, winnerId, settledAt: now },
+      const bonuses = await this.#prisma.$transaction(async (tx) => {
+        const settled = await tx.challenge.updateMany({
+          where: { id: challenge.id, status: 'ACTIVE' },
+          data: { status: 'COMPLETED', challengerXp, opponentXp, winnerId, settledAt: now },
+        });
+        // Zero means somebody else settled this duel between the read and the write.
+        // They paid and notified; doing either again would double both.
+        if (settled.count === 0) return null;
+        return payDuelSettlement(tx, challenge, challengerXp, opponentXp, now);
       });
-      // Zero means somebody else settled this duel between the read and the write.
-      // They sent the notices; sending them again would double-notify both players.
-      if (settled.count === 0) continue;
+      if (bonuses === null) continue;
 
-      await this.#notifyDuelEnded(challenge.challengerId, challenge.id, challengerXp, opponentXp);
-      await this.#notifyDuelEnded(challenge.opponentId, challenge.id, opponentXp, challengerXp);
+      const isTask = challenge.task !== null;
+      await this.#notifyDuelEnded(
+        challenge.challengerId,
+        challenge.id,
+        challengerXp,
+        opponentXp,
+        isTask ? { bonusXp: bonuses.challengerBonus } : null,
+      );
+      await this.#notifyDuelEnded(
+        challenge.opponentId,
+        challenge.id,
+        opponentXp,
+        challengerXp,
+        isTask ? { bonusXp: bonuses.opponentBonus } : null,
+      );
     }
   }
 
@@ -459,15 +683,39 @@ export class ChallengeService {
     challengeId: string,
     ownXp: number,
     opponentXp: number,
+    task: { readonly bonusXp: number } | null,
   ): Promise<void> {
     const outcome: DuelOutcome = ownXp > opponentXp ? 'WON' : ownXp < opponentXp ? 'LOST' : 'DRAW';
     await this.#notifications.createSafely({
       userId,
       actorId: null,
       type: 'CHALLENGE_ENDED',
-      ...copy.challengeEnded(outcome, ownXp, opponentXp),
+      ...copy.challengeEnded(outcome, ownXp, opponentXp, task),
       targetType: 'CHALLENGE',
       targetId: challengeId,
+    });
+  }
+
+  /** Loads a duel the caller is on either side of, with both participants. */
+  async #loadParticipating(userId: string, challengeId: string): Promise<ChallengeWithUsers> {
+    const challenge = await this.#prisma.challenge.findUnique({
+      where: { id: challengeId },
+      include: { challenger: { select: participantSelect }, opponent: { select: participantSelect } },
+    });
+    // Reported as missing rather than forbidden, as in `#loadForDecision`.
+    if (!challenge || (challenge.challengerId !== userId && challenge.opponentId !== userId)) {
+      throw notFound('Challenge not found');
+    }
+    return challenge;
+  }
+
+  /** PENDING + ACTIVE duels the user is on either side of. */
+  #liveCount(userId: string): Promise<number> {
+    return this.#prisma.challenge.count({
+      where: {
+        status: { in: [...LIVE_STATUSES] },
+        OR: [{ challengerId: userId }, { opponentId: userId }],
+      },
     });
   }
 
@@ -527,10 +775,24 @@ export class ChallengeService {
         ? await this.refreshScores(challenge)
         : { challengerXp: challenge.challengerXp, opponentXp: challenge.opponentXp };
 
+    const now = this.#now();
     const daysRemaining =
       challenge.endsAt && challenge.status === 'ACTIVE'
-        ? Math.max(0, Math.floor((challenge.endsAt.getTime() - this.#now().getTime()) / MS_PER_DAY))
+        ? Math.max(0, Math.floor((challenge.endsAt.getTime() - now.getTime()) / MS_PER_DAY))
         : null;
+
+    const dayIndex =
+      challenge.status === 'ACTIVE' && challenge.startsAt && challenge.endsAt
+        ? duelDayIndex(challenge.startsAt, challenge.endsAt, now)
+        : null;
+
+    const checkIns: DuelCheckIn[] =
+      challenge.task !== null
+        ? await this.#prisma.duelCheckIn.findMany({
+            where: { challengeId: challenge.id },
+            orderBy: [{ dayIndex: 'asc' }, { createdAt: 'asc' }],
+          })
+        : [];
 
     return {
       id: challenge.id,
@@ -540,8 +802,8 @@ export class ChallengeService {
       endsAt: challenge.endsAt,
       settledAt: challenge.settledAt,
       createdAt: challenge.createdAt,
-      challenger: { ...challenge.challenger, xp: scores.challengerXp },
-      opponent: { ...challenge.opponent, xp: scores.opponentXp },
+      challenger: { ...challenge.challenger, xp: scores.challengerXp, score: scores.challengerXp },
+      opponent: { ...challenge.opponent, xp: scores.opponentXp, score: scores.opponentXp },
       viewerIsChallenger: challenge.challengerId === viewerId,
       winnerId: challenge.winnerId,
       isDraw:
@@ -549,6 +811,91 @@ export class ChallengeService {
         challenge.winnerId === null &&
         scores.challengerXp === scores.opponentXp,
       daysRemaining,
+      task: challenge.task,
+      // A PENDING duel has no window yet; its length is the one the challenger asked for.
+      days:
+        challenge.startsAt && challenge.endsAt
+          ? duelLengthDays(challenge.startsAt, challenge.endsAt)
+          : this.#requestedDays(challenge),
+      currentDay: dayIndex === null ? null : dayIndex + 1,
+      checkIns: checkIns.map((row) => ({
+        id: row.id,
+        userId: row.userId,
+        day: row.dayIndex + 1,
+        note: row.note,
+        disputed: row.disputedAt !== null,
+        createdAt: row.createdAt,
+      })),
     };
   }
+}
+
+/**
+ * Credits or debits duel XP: one ledger row and the matching change to the user's
+ * cached totals, in the caller's transaction.
+ *
+ * `User.level` is left alone, as `grantAchievement` does: it is a sort cache derived
+ * from cycleXp, the next session completion refreshes it, and every read path derives
+ * the level through `levelProgress` anyway.
+ */
+export async function applyDuelXp(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  amount: number,
+  reason: XpReason,
+  note: string,
+  now: Date,
+): Promise<void> {
+  if (amount === 0) return;
+  await tx.xpLedger.create({ data: { userId, amount, reason, note, createdAt: now } });
+  await tx.user.update({
+    where: { id: userId },
+    data: {
+      cycleXp: { increment: amount },
+      lifetimeXp: { increment: BigInt(amount) },
+    },
+  });
+}
+
+/**
+ * Pays a settled task duel's bonuses to both sides. Legacy XP duels pay nothing.
+ *
+ * Exported for the settlement job, which must pay exactly what the lazy read path
+ * pays. Callers run it inside the transaction that flips the duel to COMPLETED and
+ * only when that flip matched a row — that guard is what makes paying idempotent.
+ */
+export async function payDuelSettlement(
+  tx: Prisma.TransactionClient,
+  challenge: Challenge,
+  challengerScore: number,
+  opponentScore: number,
+  now: Date,
+): Promise<{ challengerBonus: number; opponentBonus: number }> {
+  if (challenge.task === null || !challenge.startsAt || !challenge.endsAt) {
+    return { challengerBonus: 0, opponentBonus: 0 };
+  }
+  const days = duelLengthDays(challenge.startsAt, challenge.endsAt);
+  const challengerReward = duelSettlementReward({
+    score: challengerScore,
+    opponentScore,
+    days,
+  });
+  const opponentReward = duelSettlementReward({
+    score: opponentScore,
+    opponentScore: challengerScore,
+    days,
+  });
+  const note = `Düello sonucu: ${challenge.task}`;
+  await applyDuelXp(tx, challenge.challengerId, challengerReward.total, 'DUEL_REWARD', note, now);
+  await applyDuelXp(tx, challenge.opponentId, opponentReward.total, 'DUEL_REWARD', note, now);
+  return { challengerBonus: challengerReward.total, opponentBonus: opponentReward.total };
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'P2002'
+  );
 }

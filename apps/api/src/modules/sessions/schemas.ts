@@ -28,5 +28,13 @@ export const completeSessionBody = z.object({
 
 export const sessionIdParams = z.object({ id: z.string().cuid() });
 
+/** A count habit's quick log: how many, plus the idempotency key every write carries. */
+export const logCountBody = z.object({
+  clientRequestId,
+  count: z.number().int().min(1).max(1000),
+});
+
+export const habitIdParams = z.object({ id: z.string().cuid() });
+
 export type StartSessionBody = z.infer<typeof startSessionBody>;
 export type CompleteSessionBody = z.infer<typeof completeSessionBody>;

@@ -1,13 +1,13 @@
 /**
  * Stale session sweep.
  *
- * Small job, two things worth proving: the cutoff is the XP engine's own
- * `MAX_SESSION_MINUTES` and not a number invented here, and a session that has
+ * Small job, two things worth proving: the cutoff is the domain's own
+ * `STALE_SESSION_MINUTES` and not a number invented here, and a session that has
  * already been abandoned is not re-stamped by the next run — the sweep runs every 15
  * minutes, so a non-idempotent write would walk `endedAt` forward forever.
  */
 
-import { MAX_SESSION_MINUTES } from '@habitwar/domain';
+import { STALE_SESSION_MINUTES } from '@habitwar/domain';
 import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
@@ -82,12 +82,12 @@ beforeEach(async () => {
   });
   habitId = habit.id;
 
-  // A timer left running overnight: five hours, past the 240-minute ceiling.
-  forgottenId = await makeSession('forgotten', 300, 'ACTIVE');
+  // A timer left running overnight: an hour past the stale cutoff.
+  forgottenId = await makeSession('forgotten', STALE_SESSION_MINUTES + 60, 'ACTIVE');
   // Running for an hour. Legitimate, and the user is still in it.
   freshId = await makeSession('fresh', 60, 'ACTIVE');
   // Old but already finished; the sweep must not rewrite finished history.
-  finishedId = await makeSession('finished', 300, 'COMPLETED');
+  finishedId = await makeSession('finished', STALE_SESSION_MINUTES + 60, 'COMPLETED');
 });
 
 afterAll(async () => {
@@ -96,8 +96,8 @@ afterAll(async () => {
 });
 
 describe('staleSessionCutoff', () => {
-  it('is MAX_SESSION_MINUTES before now', () => {
-    expect(NOW.getTime() - staleSessionCutoff(NOW).getTime()).toBe(MAX_SESSION_MINUTES * MINUTE);
+  it('is STALE_SESSION_MINUTES before now', () => {
+    expect(NOW.getTime() - staleSessionCutoff(NOW).getTime()).toBe(STALE_SESSION_MINUTES * MINUTE);
   });
 });
 

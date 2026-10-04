@@ -45,8 +45,10 @@ import {
   readStats,
   type StatsPeriod,
 } from '../../src/api/profile';
+import { getBestiary } from '../../src/api/monsters';
 import { AchievementShelf } from '../../src/components/AchievementShelf';
 import { Button, cardStyle } from '../../src/components/Button';
+import { Group } from '../../src/components/Group';
 import { Icon, type IconName } from '../../src/components/Icon';
 import { ScreenHero } from '../../src/components/ScreenHero';
 import { StatRadar } from '../../src/components/StatRadar';
@@ -54,6 +56,9 @@ import { StreakCalendar } from '../../src/components/StreakCalendar';
 import { XpBar } from '../../src/components/XpBar';
 import { useAuth } from '../../src/auth/AuthContext';
 import { colors, radius, spacing, type } from '../../src/theme';
+
+/** Group separator start for a settings row: past the icon. */
+const SETTING_INSET = spacing.md + 22 + spacing.md;
 
 import type { Stat } from '@habitwar/domain';
 
@@ -98,19 +103,6 @@ const SETTINGS_ENTRIES: readonly {
   },
 ];
 
-/** Each activity metric gets the icon of the thing it counts. */
-const METRIC_ICONS: Readonly<Record<'sessions' | 'minutes' | 'xp', IconName>> = {
-  sessions: 'check-circle-filled',
-  minutes: 'clock',
-  xp: 'xp-bolt-filled',
-};
-
-/** The colour each activity metric is counted in, matching its badge above. */
-const METRIC_COLORS: Readonly<Record<'sessions' | 'minutes' | 'xp', string>> = {
-  sessions: colors.success,
-  minutes: colors.accent,
-  xp: colors.xp,
-};
 
 export default function ProfileScreen(): React.JSX.Element {
   const { signOut } = useAuth();
@@ -141,6 +133,11 @@ export default function ProfileScreen(): React.JSX.Element {
     queryFn: () => getProfileStats(period),
   });
   const achievementsQuery = useQuery({ queryKey: ['achievements'], queryFn: listAchievements });
+  /** Shares the battle tab's cache: the trophies and the title they earned. */
+  const bestiaryQuery = useQuery({ queryKey: ['monsters'], queryFn: getBestiary });
+  const trophies = bestiaryQuery.data?.trophies ?? [];
+  // The latest title is worn: the most recent thing the player beat.
+  const title = trophies[0]?.title ?? null;
 
   // The API is still in flux between the agreed contract and what shipped, so every
   // response is flattened once here rather than read field-by-field in the JSX.
@@ -183,7 +180,7 @@ export default function ProfileScreen(): React.JSX.Element {
   if (profileQuery.isError || !user || !progress) {
     return (
       <SafeAreaView style={styles.centered}>
-        <Icon name="cloud-off" size={48} color={colors.textOnDarkMuted} />
+        <Icon name="cloud-off" size={48} color={colors.textMuted} />
         <Text style={styles.errorTitle}>Profil açılamadı</Text>
         <Text style={styles.errorBody}>{describeError(profileQuery.error)}</Text>
         <Button
@@ -211,7 +208,9 @@ export default function ProfileScreen(): React.JSX.Element {
         <ScreenHero
           image="profile"
           title={displayName}
-          subtitle={describeClass(user.classType)}
+          subtitle={
+            title !== null ? `${describeClass(user.classType)} · ${title}` : describeClass(user.classType)
+          }
           grows
           action={
             <Pressable
@@ -351,20 +350,14 @@ export default function ProfileScreen(): React.JSX.Element {
             ) : summary && (summary.sessionCount ?? 0) > 0 ? (
               <View style={styles.metrics}>
                 <Metric
-                  icon={METRIC_ICONS.sessions}
-                  tint={METRIC_COLORS.sessions}
                   label="Seans"
                   value={`${summary.sessionCount ?? 0}`}
                 />
                 <Metric
-                  icon={METRIC_ICONS.minutes}
-                  tint={METRIC_COLORS.minutes}
                   label="Süre"
                   value={formatMinutes(summary.totalMinutes ?? 0)}
                 />
                 <Metric
-                  icon={METRIC_ICONS.xp}
-                  tint={METRIC_COLORS.xp}
                   label="XP"
                   value={`${summary.totalXp ?? 0}`}
                 />
@@ -407,18 +400,42 @@ export default function ProfileScreen(): React.JSX.Element {
             <AchievementShelf achievements={achievements} />
           )}
 
+          {/* ---------------------------------------------------- monster trophies */}
+          {trophies.length > 0 && (
+            <View style={styles.trophySection}>
+              <Text style={styles.groupTitle}>Yenilen canavarlar</Text>
+              <Group inset={spacing.md + 36 + spacing.md}>
+                {trophies.map((trophy) => (
+                  <View key={`${trophy.key}-${trophy.defeatedAt}`} style={styles.trophyRow}>
+                    <View style={styles.trophyIcon}>
+                      <Icon name="trophy" size={ICON_SIZE} color={colors.goldDark} />
+                    </View>
+                    <View style={styles.trophyText}>
+                      <Text style={styles.trophyName}>{trophy.name}</Text>
+                      <Text style={styles.trophyMeta}>
+                        {trophy.title} · {new Date(trophy.defeatedAt).toLocaleDateString('tr-TR')}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </Group>
+            </View>
+          )}
+
           {/* ------------------------------------------------------- settings */}
           {/* `y` here is relative to `body`, whose own offset is added on read — the
-              gear needs a content-space coordinate, not a sibling-space one. */}
+              gear needs a content-space coordinate, not a sibling-space one. Laid out
+              like the system Settings app: a header above a grouped list, and the
+              session-ending action alone in a group of its own. */}
           <View
-            style={styles.card}
+            style={styles.settingsSection}
             onLayout={(event) => {
               settingsOffset.current = bodyOffset.current + event.nativeEvent.layout.y;
             }}
           >
-            <Text style={styles.sectionTitle}>Ayarlar</Text>
+            <Text style={styles.groupTitle}>Ayarlar</Text>
 
-            <View style={styles.settingsList}>
+            <Group inset={SETTING_INSET}>
               {SETTINGS_ENTRIES.map((entry) => (
                 <Pressable
                   key={entry.key}
@@ -430,44 +447,18 @@ export default function ProfileScreen(): React.JSX.Element {
                   accessibilityRole="button"
                   accessibilityLabel={`${entry.label}. ${entry.hint}`}
                 >
-                  <View style={[styles.settingIcon, entry.destructive && styles.settingIconDanger]}>
-                    <Icon
-                      name={entry.icon}
-                      size={ICON_SIZE}
-                      color={entry.destructive ? colors.danger : colors.textMuted}
-                    />
-                  </View>
-                  <View style={styles.settingText}>
-                    <Text style={[styles.settingLabel, entry.destructive && styles.destructive]}>
-                      {entry.label}
-                    </Text>
-                    <Text style={styles.settingHint}>{entry.hint}</Text>
-                  </View>
-                    <Icon name="chevron-right" size={ICON_SIZE} color={colors.textFaint} />
+                  <Icon
+                    name={entry.icon}
+                    size={ICON_SIZE}
+                    color={entry.destructive ? colors.danger : colors.textMuted}
+                  />
+                  <Text style={[styles.settingLabel, entry.destructive && styles.destructive]}>
+                    {entry.label}
+                  </Text>
+                  <Icon name="chevron-right" size={ICON_SIZE - 4} color={colors.borderStrong} />
                 </Pressable>
               ))}
-            </View>
-
-            {/* Sign-out sits outside SETTINGS_ENTRIES because it is not a navigation
-                row that opens a screen — it is an action that ends the session. */}
-            <Pressable
-              style={({ pressed }) => [styles.settingRow, pressed && styles.settingRowPressed]}
-              onPress={() => {
-                void Haptics.selectionAsync();
-                void signOut();
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Çıkış yap"
-            >
-              <View style={[styles.settingIcon, styles.settingIconDanger]}>
-                <Icon name="logout" size={ICON_SIZE} color={colors.danger} />
-              </View>
-              <View style={styles.settingText}>
-                <Text style={[styles.settingLabel, styles.destructive]}>Çıkış yap</Text>
-                <Text style={styles.settingHint}>Bu cihazdan oturumu kapat</Text>
-              </View>
-              <Icon name="chevron-right" size={ICON_SIZE} color={colors.textFaint} />
-            </Pressable>
+            </Group>
 
             {/*
               Placeholder screens are not built yet, but the entries must be visible and
@@ -476,12 +467,30 @@ export default function ProfileScreen(): React.JSX.Element {
             */}
             {pendingSetting !== null && (
               <Animated.View entering={FadeInDown.duration(200)} style={styles.placeholderNotice}>
-                  <Icon name="alert" size={ICON_SIZE} color={colors.fireDark} />
+                <Icon name="alert" size={ICON_SIZE} color={colors.fireDark} />
                 <Text style={styles.placeholderNoticeText}>
                   Bu ekran henüz hazır değil. Yakında burada açılacak.
                 </Text>
               </Animated.View>
             )}
+
+            {/* Sign-out sits outside SETTINGS_ENTRIES because it is not a navigation
+                row that opens a screen — it is an action that ends the session. */}
+            <Group>
+              <Pressable
+                style={({ pressed }) => [styles.signOutRow, pressed && styles.settingRowPressed]}
+                onPress={() => {
+                  void Haptics.selectionAsync();
+                  void signOut();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Çıkış yap"
+              >
+                <Text style={[styles.settingLabel, styles.destructive, styles.signOutLabel]}>
+                  Çıkış yap
+                </Text>
+              </Pressable>
+            </Group>
           </View>
         </View>
       </ScrollView>
@@ -513,11 +522,8 @@ function Avatar({ url, name }: { url: string | null; name: string }): React.JSX.
 }
 
 /**
- * One of the three dark badges under the hero.
- *
- * Stone rather than parchment, because these are what the user *is* rather than
- * what they recorded — the same distinction the season banner makes on the battle
- * screen. The figure leads and the word beneath it is demoted to an overline.
+ * One of the three standing badges under the hero: a translucent material over the
+ * scene, the figure leading and the word beneath it demoted to a caption.
  */
 function StandingBadge({
   icon,
@@ -548,20 +554,10 @@ function StandingBadge({
   );
 }
 
-function Metric({
-  icon,
-  tint,
-  label,
-  value,
-}: {
-  icon: IconName;
-  tint: string;
-  label: string;
-  value: string;
-}): React.JSX.Element {
+/** A figure and its label. No tile and no icon: the number is the content. */
+function Metric({ label, value }: { label: string; value: string }): React.JSX.Element {
   return (
     <View style={styles.metric} accessible accessibilityRole="text" accessibilityLabel={`${label}: ${value}`}>
-      <Icon name={icon} size={ICON_SIZE} color={tint} />
       {/* Two lines allowed: at display size a long duration ("12 sa 30 dk") wraps to
           "12 sa / 30 dk", which still reads as one figure. Clipping it would not. */}
       <Text style={styles.metricValue} numberOfLines={2}>
@@ -575,6 +571,9 @@ function Metric({
 function formatMinutes(minutes: number): string {
   const safe = Math.max(0, Math.round(minutes));
   if (safe < 60) return `${safe} dk`;
+  // Ten hours and up as one decimal figure: "14 sa 5 dk" does not fit a third of the
+  // card on a small phone, and at that scale the minutes are noise.
+  if (safe >= 600) return `${(safe / 60).toFixed(1).replace('.', ',')} sa`;
   const hours = Math.floor(safe / 60);
   const rest = safe % 60;
   return rest === 0 ? `${hours} sa` : `${hours} sa ${rest} dk`;
@@ -588,8 +587,6 @@ function describeError(error: unknown): string {
 }
 
 const AVATAR_SIZE = 52;
-/** Matches the 2px outline this language uses everywhere else. */
-const AVATAR_BORDER = 2;
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
@@ -634,9 +631,8 @@ const styles = StyleSheet.create({
     height: AVATAR_SIZE,
     borderRadius: radius.pill,
     backgroundColor: colors.surfaceRaised,
-    // Gold, because on the illustration a warm grey ring would read as a smudge.
-    borderWidth: AVATAR_BORDER + 1,
-    borderColor: colors.gold,
+    borderWidth: 2,
+    borderColor: colors.textOnDark,
   },
   avatarFallback: { alignItems: 'center', justifyContent: 'center' },
   avatarInitial: { ...type.title, color: colors.textMuted },
@@ -649,20 +645,17 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     gap: spacing.xs,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm + 4,
     paddingHorizontal: spacing.xs,
-    // Softer than a card's corner: these now sit inside the hero, and the comp reads
-    // them as rounded tokens on the scene rather than three small panels.
-    borderRadius: radius.lg,
-    backgroundColor: colors.stone,
-    borderWidth: 2,
-    borderColor: colors.frame,
+    borderRadius: radius.md,
+    // A light material over the scrim, matching the Bugün banner.
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
   },
   standingValue: { ...type.title, color: colors.textOnDark, fontVariant: ['tabular-nums'] },
   standingLabel: {
-    ...type.overline,
-    color: colors.textOnDarkMuted,
-    textTransform: 'uppercase',
+    ...type.caption,
+    color: colors.textOnDark,
+    opacity: 0.8,
     textAlign: 'center',
   },
 
@@ -674,56 +667,60 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { ...type.heading, color: colors.text },
 
+  /** The system segmented control: a grey track and a white thumb, no accent. */
   segmented: {
     flexDirection: 'row',
-    backgroundColor: colors.surfaceSunken,
-    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceRaised,
+    borderRadius: radius.sm,
     padding: 2,
   },
-  segment: { paddingHorizontal: spacing.sm + 2, paddingVertical: 5, borderRadius: radius.pill },
-  segmentSelected: { backgroundColor: colors.accent },
+  segment: { paddingHorizontal: spacing.sm + 4, paddingVertical: 4, borderRadius: radius.sm - 2 },
+  segmentSelected: { backgroundColor: colors.surface },
   segmentText: { ...type.label, color: colors.textMuted },
-  segmentTextSelected: { color: colors.textOnAccent },
+  segmentTextSelected: { color: colors.text },
 
   metrics: { flexDirection: 'row', gap: spacing.sm },
-  metric: {
-    flex: 1,
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.sm + 2,
-    paddingHorizontal: spacing.xs,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceRaised,
-    borderWidth: 2,
-    borderColor: colors.border,
-  },
-  // The figure is the point of the tile, so it is set at display size.
-  metricValue: { ...type.display, color: colors.text, textAlign: 'center' },
-  metricLabel: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase' },
+  metric: { flex: 1, alignItems: 'center', gap: 2, paddingVertical: spacing.xs },
+  // The figure is the point, so it leads at title size — large, but small enough
+  // that "14 sa 5 dk" stays on one line in a third of the card.
+  metricValue: { ...type.title, color: colors.text, textAlign: 'center', fontVariant: ['tabular-nums'] },
+  metricLabel: { ...type.caption, color: colors.textMuted },
 
-  settingsList: { gap: spacing.xs },
-  settingRow: {
+  settingsSection: { gap: spacing.sm },
+  trophySection: { gap: spacing.sm },
+  trophyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.md,
+    gap: spacing.md,
+    minHeight: 56,
+    paddingHorizontal: spacing.md,
   },
-  settingRowPressed: { backgroundColor: colors.surfaceRaised },
-  settingIcon: {
+  trophyIcon: {
     width: 36,
     height: 36,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surfaceRaised,
+    borderRadius: radius.sm + 2,
+    backgroundColor: colors.goldSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  settingIconDanger: { backgroundColor: colors.dangerSoft },
-  settingText: { flex: 1, gap: 1 },
-  settingLabel: { ...type.body, color: colors.text },
-  settingHint: { ...type.caption, color: colors.textFaint },
+  trophyText: { flex: 1, gap: 2 },
+  trophyName: { ...type.body, color: colors.text },
+  trophyMeta: { ...type.caption, color: colors.textMuted },
+  groupTitle: { ...type.heading, color: colors.text, paddingHorizontal: spacing.xs, paddingTop: spacing.sm },
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    minHeight: 48,
+    paddingHorizontal: spacing.md,
+  },
+  settingRowPressed: { backgroundColor: colors.surfaceRaised },
+  settingLabel: { ...type.body, color: colors.text, flex: 1 },
   destructive: { color: colors.danger },
+  signOutRow: { minHeight: 48, justifyContent: 'center', paddingHorizontal: spacing.md },
+  // `flex: 0` undoes the row label's flex: in this column the label must not grow
+  // vertically, or it sticks to the top of the row instead of centring in it.
+  signOutLabel: { flex: 0, textAlign: 'center', fontFamily: 'Nunito_700Bold' },
 
   placeholderNotice: {
     flexDirection: 'row',
@@ -738,8 +735,8 @@ const styles = StyleSheet.create({
   inlineSpinner: { alignSelf: 'center', marginVertical: spacing.md },
   inlineError: { gap: spacing.sm, alignItems: 'flex-start' },
   empty: { ...type.body, color: colors.textFaint, lineHeight: 21 },
-  mutedBody: { ...type.body, color: colors.textOnDarkMuted, textAlign: 'center' },
+  mutedBody: { ...type.body, color: colors.textMuted, textAlign: 'center' },
 
-  errorTitle: { ...type.heading, color: colors.textOnDark },
-  errorBody: { ...type.body, color: colors.textOnDarkMuted, textAlign: 'center' },
+  errorTitle: { ...type.heading, color: colors.text },
+  errorBody: { ...type.body, color: colors.textMuted, textAlign: 'center' },
 });

@@ -9,6 +9,8 @@
 
 import { z } from 'zod';
 
+import { DUEL_TASK_MAX_LENGTH, DUEL_TASK_MIN_LENGTH } from '@habitwar/domain';
+
 import { CHALLENGE_MAX_DAYS, CHALLENGE_MIN_DAYS } from './challenges.js';
 
 /**
@@ -37,10 +39,9 @@ const category = z.enum([
 /**
  * Duel creation.
  *
- * `category` is required by the task brief even though `Challenge.category` is
- * nullable in the schema (null would mean a total-XP duel). Leaving the "any
- * category" variant out of the public contract keeps the scoring path single-shaped
- * for now; it can be relaxed later without a migration.
+ * Every new duel is a task duel: `task` is required, the one thing both sides commit
+ * to doing each day. `category` is optional context only — task duels are scored in
+ * check-in days, not in a category's XP. Legacy XP duels can no longer be opened.
  *
  * `days` is bounded to the spec's 3-7 window (§5.4). Anything outside is rejected at
  * the edge rather than silently clamped — a client asking for a 30-day duel has a
@@ -48,11 +49,24 @@ const category = z.enum([
  */
 export const createChallengeBody = z.object({
   opponentUsername: username,
-  category,
+  task: z.string().trim().min(DUEL_TASK_MIN_LENGTH).max(DUEL_TASK_MAX_LENGTH),
+  category: category.optional(),
   days: z.number().int().min(CHALLENGE_MIN_DAYS).max(CHALLENGE_MAX_DAYS),
 });
 
 export const challengeIdParams = z.object({ id: z.string().cuid() });
+
+/** A bestiary key: lowercase words joined by hyphens. */
+export const monsterKeyParams = z.object({
+  key: z.string().regex(/^[a-z]+(?:-[a-z]+)*$/).max(40),
+});
+
+/** A day's check-in: an optional line for the opponent to read. */
+export const checkInBody = z
+  .object({ note: z.string().trim().max(140).optional() })
+  .default({});
+
+export const checkInParams = z.object({ id: z.string().cuid(), checkInId: z.string().cuid() });
 
 /**
  * Duel list filter. `status=active` is the duel screen's default; `all` backs the

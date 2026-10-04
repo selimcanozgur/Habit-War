@@ -28,40 +28,42 @@ export interface AuthUser {
 }
 
 export function signUp(email: string, password: string): Promise<AuthResponse> {
-  return apiRequest<AuthResponse>('/auth/sign-up', {
+  return apiRequest<AuthResponse>('/v1/auth/sign-up', {
     method: 'POST',
+    authenticated: false,
     body: { email, password },
   });
 }
 
 export function signIn(email: string, password: string): Promise<AuthResponse> {
-  return apiRequest<AuthResponse>('/auth/sign-in', {
+  return apiRequest<AuthResponse>('/v1/auth/sign-in', {
     method: 'POST',
+    authenticated: false,
     body: { email, password },
   });
 }
 
 /** Exchanges a Google ID token for a session. */
 export function signInWithGoogle(idToken: string): Promise<AuthResponse> {
-  return apiRequest<AuthResponse>('/auth/google', { method: 'POST', body: { idToken } });
+  return apiRequest<AuthResponse>('/v1/auth/google', { method: 'POST', body: { idToken }, authenticated: false });
 }
 
 export function signInWithApple(idToken: string): Promise<AuthResponse> {
-  return apiRequest<AuthResponse>('/auth/apple', { method: 'POST', body: { idToken } });
+  return apiRequest<AuthResponse>('/v1/auth/apple', { method: 'POST', body: { idToken }, authenticated: false });
 }
 
 export function refreshSession(refreshToken: string): Promise<AuthResponse> {
-  return apiRequest<AuthResponse>('/auth/refresh', { method: 'POST', body: { refreshToken } });
+  return apiRequest<AuthResponse>('/v1/auth/refresh', { method: 'POST', body: { refreshToken }, authenticated: false });
 }
 
 export function signOut(refreshToken: string): Promise<void> {
-  return apiRequest<void>('/auth/sign-out', { method: 'POST', body: { refreshToken } });
+  return apiRequest<void>('/v1/auth/sign-out', { method: 'POST', body: { refreshToken }, authenticated: false });
 }
 
 export function requestPasswordReset(email: string): Promise<void> {
-  return apiRequest<void>('/auth/forgot-password', { method: 'POST', body: { email } });
+  return apiRequest<void>('/v1/auth/forgot-password', { method: 'POST', body: { email }, authenticated: false });
 }
 
 export function resendVerification(email: string): Promise<void> {
-  return apiRequest<void>('/auth/resend-verification', { method: 'POST', body: { email } });
+  return apiRequest<void>('/v1/auth/resend-verification', { method: 'POST', body: { email }, authenticated: false });
 }

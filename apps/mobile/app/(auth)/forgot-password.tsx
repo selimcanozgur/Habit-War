@@ -158,7 +158,7 @@ export default function ForgotPasswordScreen(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
+  safe: { flex: 1, backgroundColor: colors.surface },
   avoid: { flex: 1 },
   scroll: { flex: 1 },
 
@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
   },
 
   header: { gap: spacing.xs },
-  title: { ...type.heading, color: colors.text },
+  title: { ...type.hero, color: colors.text },
   subtitle: { ...type.body, color: colors.textMuted, lineHeight: 22 },
 
   form: { gap: spacing.md },

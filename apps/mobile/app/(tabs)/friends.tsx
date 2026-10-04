@@ -8,7 +8,7 @@
  * empty list is a set of instructions rather than a shrug.
  *
  * Because that box is the screen's real job, it lives inside the hero itself — a
- * parchment field laid over the illustration, where it is the first thing the eye
+ * white field laid over the illustration, where it is the first thing the eye
  * lands on after the title. Anything quieter and the cold start fails silently.
  *
  * Search is debounced because the endpoint is hit on every keystroke otherwise,
@@ -46,7 +46,8 @@ import {
 import { Button, ChipButton, cardStyle } from '../../src/components/Button';
 import { Icon, type IconName } from '../../src/components/Icon';
 import { ScreenHero } from '../../src/components/ScreenHero';
-import { UserRow } from '../../src/components/UserRow';
+import { Group } from '../../src/components/Group';
+import { USER_ROW_INSET, UserRow } from '../../src/components/UserRow';
 import { colors, radius, spacing, type } from '../../src/theme';
 
 /** Long enough that a normal typist fires one request, short enough to feel live. */
@@ -240,7 +241,8 @@ export default function FriendsScreen(): React.JSX.Element {
                 “{debouncedQuery}” ile eşleşen kullanıcı yok. Kullanıcı adını tam yazmayı dene.
               </Text>
             ) : (
-              searchResults.map((user) => {
+              <Group inset={USER_ROW_INSET}>
+              {searchResults.map((user) => {
                 const alreadyKnown = knownUsernames.has(user.username);
                 return (
                   <UserRow
@@ -268,7 +270,8 @@ export default function FriendsScreen(): React.JSX.Element {
                     }
                   />
                 );
-              })
+              })}
+              </Group>
             )}
           </Section>
         ) : (
@@ -291,6 +294,7 @@ export default function FriendsScreen(): React.JSX.Element {
               <>
                 {incoming.length > 0 && (
                   <Section title={`Gelen istekler (${incoming.length})`}>
+                    <Group inset={USER_ROW_INSET}>
                     {incoming.map((request) => (
                       <UserRow
                         key={request.friendshipId}
@@ -318,11 +322,13 @@ export default function FriendsScreen(): React.JSX.Element {
                         }
                       />
                     ))}
+                    </Group>
                   </Section>
                 )}
 
                 {outgoing.length > 0 && (
                   <Section title="Gönderilen istekler">
+                    <Group inset={USER_ROW_INSET}>
                     {outgoing.map((request) => (
                       <UserRow
                         key={request.friendshipId}
@@ -339,6 +345,7 @@ export default function FriendsScreen(): React.JSX.Element {
                         }
                       />
                     ))}
+                    </Group>
                   </Section>
                 )}
 
@@ -350,7 +357,8 @@ export default function FriendsScreen(): React.JSX.Element {
                   {friends.length === 0 ? (
                     <ColdStart hasOutgoing={outgoing.length > 0} />
                   ) : (
-                    friends.map((friend) => (
+                    <Group inset={USER_ROW_INSET}>
+                    {friends.map((friend) => (
                       <UserRow
                         key={friend.friendshipId}
                         user={friend.user}
@@ -361,7 +369,8 @@ export default function FriendsScreen(): React.JSX.Element {
                             : 'Seri yok'
                         }
                       />
-                    ))
+                    ))}
+                    </Group>
                   )}
                 </Section>
               </>
@@ -490,36 +499,31 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
     borderRadius: radius.md,
-    // Parchment on the illustration: the one thing in the hero meant to be touched.
+    // White on the illustration: the one thing in the hero meant to be touched. Its
+    // fill is the edge; a system search field carries no outline.
     backgroundColor: colors.surface,
-    borderWidth: 2,
-    borderColor: colors.borderStrong,
   },
-  // Turns primary once there is a query, which is the only "active" cue available
-  // without tracking focus state and changing behaviour.
-  searchBoxActive: { borderColor: colors.accent },
+  searchBoxActive: {},
   searchInput: { ...type.body, color: colors.text, flex: 1, paddingVertical: spacing.sm + 2 },
 
-  hint: { ...type.caption, color: colors.textOnDarkMuted },
+  hint: { ...type.caption, color: colors.textMuted },
   notice: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
     padding: spacing.sm + 2,
     borderRadius: radius.md,
-    borderWidth: 2,
-    borderColor: colors.accent,
     backgroundColor: colors.accentSoft,
   },
   noticeText: { ...type.caption, color: colors.accentDark, flex: 1 },
 
   section: { gap: spacing.sm },
-  // Section headers sit on the dark page ground, not on a card.
-  sectionTitle: { ...type.heading, color: colors.textOnDark },
+  // Section headers sit on the page ground, above their group, not inside a card.
+  sectionTitle: { ...type.heading, color: colors.text, paddingHorizontal: spacing.xs },
   sectionBody: { gap: spacing.sm },
 
   inlineLoader: { marginTop: spacing.xl },
-  empty: { ...type.body, color: colors.textOnDarkMuted, paddingVertical: spacing.md },
+  empty: { ...type.body, color: colors.textMuted, paddingVertical: spacing.md },
 
   coldStart: { ...cardStyle, padding: spacing.lg, gap: spacing.sm },
   coldStartTitle: { ...type.heading, color: colors.text },
@@ -532,8 +536,8 @@ const styles = StyleSheet.create({
   trailingLabelGroup: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   trailingLabel: { ...type.caption, color: colors.textMuted },
 
-  // The error sits on the dark page ground, so it takes a parchment card of its own
-  // rather than red ink on stone, which would fail contrast.
+  // The error takes a card of its own, so it reads as part of the content rather than
+  // as text floating on the page ground.
   errorBlock: { ...cardStyle, gap: spacing.sm, alignItems: 'flex-start' },
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   errorText: { ...type.body, color: colors.danger, flex: 1 },

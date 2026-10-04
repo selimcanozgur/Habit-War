@@ -150,17 +150,44 @@ export const copy = {
 
   // --- Duels ---------------------------------------------------------------
 
-  challengeInvite(actorName: string, category: Category | null, days: number): NotificationCopy {
+  /** `task` set → a task duel, named by its task; null → a legacy duel, named by category. */
+  challengeInvite(
+    actorName: string,
+    category: Category | null,
+    days: number,
+    task: string | null = null,
+  ): NotificationCopy {
     return {
       title: title(`${name(actorName)} seni düelloya davet etti`),
-      body: body(`${categoryLabel(category)} kategorisinde ${days} günlük düello.`),
+      body: body(
+        task !== null
+          ? `Günlük görev: ${clamp(task, NAME_MAX)}. ${days} gün sürecek.`
+          : `${categoryLabel(category)} kategorisinde ${days} günlük düello.`,
+      ),
     };
   },
 
-  challengeAccepted(actorName: string, category: Category | null, days: number): NotificationCopy {
+  challengeAccepted(
+    actorName: string,
+    category: Category | null,
+    days: number,
+    task: string | null = null,
+  ): NotificationCopy {
     return {
       title: title(`${name(actorName)} düello davetini kabul etti`),
-      body: body(`${categoryLabel(category)} düellosu başladı, ${days} gün sürüyor.`),
+      body: body(
+        task !== null
+          ? `Düello başladı: ${days} gün boyunca her gün "${clamp(task, NAME_MAX)}".`
+          : `${categoryLabel(category)} düellosu başladı, ${days} gün sürüyor.`,
+      ),
+    };
+  },
+
+  /** The opponent disputed one of the reader's check-ins. Names the actor: it is their call. */
+  challengeDisputed(actorName: string, day: number): NotificationCopy {
+    return {
+      title: title(`${name(actorName)} ${day}. gün işaretine itiraz etti`),
+      body: body('Bu gün düello skoruna sayılmayacak.'),
     };
   },
 
@@ -168,15 +195,23 @@ export const copy = {
    * Result of a finished duel. System copy: no actor name, so the sentence is the
    * same whether or not the opponent has since blocked, deleted or been purged.
    */
-  challengeEnded(outcome: DuelOutcome, ownXp: number, opponentXp: number): NotificationCopy {
-    const score = `${ownXp} XP – ${opponentXp} XP`;
+  challengeEnded(
+    outcome: DuelOutcome,
+    ownXp: number,
+    opponentXp: number,
+    /** Task duels score in days and may pay a settlement bonus. Omitted → legacy XP copy. */
+    task: { readonly bonusXp: number } | null = null,
+  ): NotificationCopy {
+    const score =
+      task !== null ? `${ownXp} – ${opponentXp} gün` : `${ownXp} XP – ${opponentXp} XP`;
+    const bonus = task !== null && task.bonusXp > 0 ? ` +${task.bonusXp} XP bonus kazandın.` : '';
     if (outcome === 'WON') {
-      return { title: title('Düelloyu kazandın'), body: body(`Sonuç: ${score}.`) };
+      return { title: title('Düelloyu kazandın'), body: body(`Sonuç: ${score}.${bonus}`) };
     }
     if (outcome === 'LOST') {
-      return { title: title('Düello sona erdi'), body: body(`Kaybettin. Sonuç: ${score}.`) };
+      return { title: title('Düello sona erdi'), body: body(`Kaybettin. Sonuç: ${score}.${bonus}`) };
     }
-    return { title: title('Düello berabere bitti'), body: body(`Sonuç: ${score}.`) };
+    return { title: title('Düello berabere bitti'), body: body(`Sonuç: ${score}.${bonus}`) };
   },
 
   // --- Moderation ----------------------------------------------------------

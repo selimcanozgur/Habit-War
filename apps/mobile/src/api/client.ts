@@ -20,6 +20,12 @@ function resolveBaseUrl(): string {
   const hostUri = Constants.expoConfig?.hostUri;
 
   if (configured && !configured.includes('localhost')) return configured;
+  // On web the manifest carries no hostUri, but the page's own address is the one the
+  // browser already reached — a phone opening the LAN address must not be sent to its
+  // own localhost.
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    return `${window.location.protocol}//${window.location.hostname}:3000`;
+  }
   if (hostUri) {
     const host = hostUri.split(':')[0];
     if (host) return `http://${host}:3000`;
@@ -62,14 +68,19 @@ export interface RequestOptions {
   readonly method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   readonly body?: unknown;
   readonly signal?: AbortSignal;
+  /**
+   * False skips the auth header provider. The auth endpoints need this: the provider
+   * refreshes a spent token, and the refresh call itself must not trigger another.
+   */
+  readonly authenticated?: boolean;
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, signal } = options;
+  const { method = 'GET', body, signal, authenticated = true } = options;
 
   const headers: Record<string, string> = {
     accept: 'application/json',
-    ...(await authHeaderProvider()),
+    ...(authenticated ? await authHeaderProvider() : {}),
   };
   if (body !== undefined) headers['content-type'] = 'application/json';
 

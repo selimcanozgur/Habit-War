@@ -16,6 +16,7 @@
  * startedAt/endedAt when the session completes. Everything here is display.
  */
 
+import { activeSessionSeconds } from '@habitwar/domain';
 import { create } from 'zustand';
 
 /** Foregrounded app repaints. Anything finer than a second is invisible on a clock. */
@@ -26,12 +27,27 @@ export interface TimerState {
   readonly habitId: string | null;
   /** Epoch ms of the server-recorded start. Null when no session is running. */
   readonly startedAtMs: number | null;
+  /** Seconds of resumed pauses, as the server recorded them. */
+  readonly pausedSec: number;
+  /** Epoch ms the current pause began; null while running. Server-recorded too. */
+  readonly pausedAtMs: number | null;
   /** Times the app left the foreground during this session. Feeds focus quality. */
   readonly interruptions: number;
   /** Derived, not accumulated — see the note above. */
   readonly elapsedSec: number;
 
-  start: (input: { sessionId: string; habitId: string; startedAt: string }) => void;
+  /**
+   * Adopts a session as the server describes it — on start, on pause and resume, and
+   * when the app reopens. Pause state comes from the server, so a session paused
+   * yesterday is still paused today, on any device.
+   */
+  start: (input: {
+    sessionId: string;
+    habitId: string;
+    startedAt: string;
+    pausedSec?: number | undefined;
+    pausedAt?: string | null | undefined;
+  }) => void;
   stop: () => void;
   tick: () => void;
   recordInterruption: () => void;
@@ -41,39 +57,59 @@ export const useTimerStore = create<TimerState>((set, get) => ({
   sessionId: null,
   habitId: null,
   startedAtMs: null,
+  pausedSec: 0,
+  pausedAtMs: null,
   interruptions: 0,
   elapsedSec: 0,
 
-  start: ({ sessionId, habitId, startedAt }) => {
+  start: ({ sessionId, habitId, startedAt, pausedSec = 0, pausedAt = null }) => {
     const startedAtMs = Date.parse(startedAt);
-    set({
+    const pausedAtMs = pausedAt ? Date.parse(pausedAt) : null;
+    set((state) => ({
       sessionId,
       habitId,
       startedAtMs,
-      interruptions: 0,
-      elapsedSec: elapsedFrom(startedAtMs),
-    });
+      pausedSec,
+      pausedAtMs,
+      // A re-sync of the same session keeps the interruptions counted so far.
+      interruptions: state.sessionId === sessionId ? state.interruptions : 0,
+      elapsedSec: elapsedFrom(startedAtMs, pausedSec, pausedAtMs),
+    }));
   },
 
-  stop: () => set({ sessionId: null, habitId: null, startedAtMs: null, elapsedSec: 0, interruptions: 0 }),
+  stop: () =>
+    set({
+      sessionId: null,
+      habitId: null,
+      startedAtMs: null,
+      pausedSec: 0,
+      pausedAtMs: null,
+      elapsedSec: 0,
+      interruptions: 0,
+    }),
 
   tick: () => {
-    const { startedAtMs } = get();
+    const { startedAtMs, pausedSec, pausedAtMs } = get();
     if (startedAtMs === null) return;
-    set({ elapsedSec: elapsedFrom(startedAtMs) });
+    set({ elapsedSec: elapsedFrom(startedAtMs, pausedSec, pausedAtMs) });
   },
 
   recordInterruption: () => set((state) => ({ interruptions: state.interruptions + 1 })),
 }));
 
 /**
- * Seconds since `startedAtMs`, floored at zero.
- *
- * Clamped because the device clock can sit behind the server's, which would
- * otherwise render a negative timer for the first few seconds of a session.
+ * Credited seconds so far — the same arithmetic the server awards on, from the domain
+ * package. Floored at zero because the device clock can sit behind the server's.
  */
-function elapsedFrom(startedAtMs: number): number {
-  return Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
+function elapsedFrom(startedAtMs: number, pausedSec: number, pausedAtMs: number | null): number {
+  return activeSessionSeconds(
+    {
+      startedAt: new Date(startedAtMs),
+      pausedSec,
+      pausedAt: pausedAtMs === null ? null : new Date(pausedAtMs),
+    },
+    new Date(),
+  );
 }
 
 export { TICK_MS };

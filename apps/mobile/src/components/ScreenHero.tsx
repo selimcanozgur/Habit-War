@@ -7,15 +7,14 @@
  * Two things keep it legible. A dark scrim runs up from the bottom of the image, so
  * the title has guaranteed contrast no matter which illustration sits behind it — a
  * title placed on raw artwork is legible only until someone swaps the picture. And
- * the content below overlaps the image slightly, so the page reads as parchment laid
- * on a scene rather than two stacked rectangles.
+ * the image ends square, so the page simply begins where the scene stops.
  */
 
 import { Image, StyleSheet, Text, View, type ImageSourcePropType } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, heroHeight, radius, spacing, type } from '../theme';
+import { colors, heroHeight, spacing, type } from '../theme';
 import { Icon, type IconName } from './Icon';
 
 /**
@@ -101,10 +100,10 @@ export function ScreenHero({
       */}
       <LinearGradient
         colors={[
-          'rgba(29,42,53,0.55)',
-          'rgba(29,42,53,0.15)',
-          'rgba(29,42,53,0.55)',
-          'rgba(29,42,53,0.94)',
+          'rgba(49,47,39,0.55)',
+          'rgba(49,47,39,0.15)',
+          'rgba(49,47,39,0.55)',
+          'rgba(49,47,39,0.94)',
         ]}
         locations={[0, 0.3, 0.62, 1]}
         style={StyleSheet.absoluteFill}
@@ -155,10 +154,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFill,
     width: '100%',
     height: '100%',
-    // The content below overlaps this radius, which is what makes the page read as
-    // laid over the scene rather than butted against it.
-    borderBottomLeftRadius: radius.lg,
-    borderBottomRightRadius: radius.lg,
   },
   // `flex: 1` so the spacer has room to claim; without it the content block is only
   // as tall as its children and the spacer has nothing to distribute.
@@ -174,7 +169,7 @@ const styles = StyleSheet.create({
   title: {
     ...type.hero,
     color: colors.textOnDark,
-    textShadowColor: 'rgba(12, 20, 28, 0.75)',
+    textShadowColor: 'rgba(20, 19, 15, 0.75)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 6,
   },
@@ -183,7 +178,7 @@ const styles = StyleSheet.create({
     // Full-strength on-dark ink rather than the muted tone: muted is for a caption on
     // a panel, and here it dissolved into the clouds.
     color: colors.textOnDark,
-    textShadowColor: 'rgba(12, 20, 28, 0.75)',
+    textShadowColor: 'rgba(20, 19, 15, 0.75)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 5,
   },

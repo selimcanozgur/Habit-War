@@ -10,9 +10,10 @@
  * the single "Ekle" button and the plain streak label have nothing in common
  * beyond their position, and modelling them as variants would only grow.
  *
- * Visually the row is a card: it borrows `cardStyle` so a row and a panel carry the
- * same 2px outline. On parchment the border is the only thing separating one row
- * from the next, which is why it is never thinner than the shared token.
+ * Visually the row is a list row, not a card: it has no fill or edge of its own and
+ * is meant to sit inside a `Group`, which supplies the card and the separators.
+ * `USER_ROW_INSET` is where that separator should start for a row without a
+ * leading slot.
  */
 
 import { memo } from 'react';
@@ -21,7 +22,6 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { describeClass } from '../api/profile';
 import type { SocialUser } from '../api/social';
 import { colors, radius, spacing, type } from '../theme';
-import { cardStyle } from './Button';
 
 export interface UserRowProps {
   readonly user: SocialUser;
@@ -67,7 +67,7 @@ function UserRowInner({
       {leading}
 
       <View style={styles.avatarWrap}>
-        <View style={[styles.avatar, highlighted && styles.avatarHighlighted]}>
+        <View style={styles.avatar}>
           {user.avatarUrl !== null ? (
             <Image source={{ uri: user.avatarUrl }} style={styles.avatarImage} />
           ) : (
@@ -115,25 +115,25 @@ function UserRowInner({
 
 export const UserRow = memo(UserRowInner);
 
-const AVATAR_SIZE = 44;
-/** Matches the 2px outline this language uses everywhere else. */
-const AVATAR_BORDER = 2;
+/** Where a `Group` separator starts under a row with no leading slot: past the avatar. */
+export const USER_ROW_INSET = spacing.md + 40 + spacing.md;
+
+const AVATAR_SIZE = 40;
 /** Large enough to register at a glance, small enough not to crop the avatar. */
 const PRESENCE_SIZE = 12;
 
 const styles = StyleSheet.create({
   row: {
-    ...cardStyle,
-    // A row is shorter than a panel, so the panel radius would eat into the avatar.
-    borderRadius: radius.md,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
   },
-  // "You" is marked by a tinted fill as well as the border: colour alone would be
-  // invisible to anyone who cannot distinguish the gold from the parchment.
-  rowHighlighted: { borderColor: colors.goldDark, backgroundColor: colors.goldSoft },
-  rowPressed: { opacity: 0.7 },
+  // "You" in a list: a soft wash rather than an outline. The rank and name still say
+  // it in text, so the wash is a cue, not the only signal.
+  rowHighlighted: { backgroundColor: colors.goldSoft },
+  rowPressed: { backgroundColor: colors.surfaceRaised },
 
   avatarWrap: { width: AVATAR_SIZE, height: AVATAR_SIZE },
   avatar: {
@@ -141,13 +141,10 @@ const styles = StyleSheet.create({
     height: AVATAR_SIZE,
     borderRadius: radius.pill,
     backgroundColor: colors.surfaceSunken,
-    borderWidth: AVATAR_BORDER,
-    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  avatarHighlighted: { borderColor: colors.goldDark },
   // Sits on the avatar's lower-right, ringed in the card colour so it reads as an
   // object on top of the photo rather than a spot of dirt in it.
   presenceDot: {
@@ -161,11 +158,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: colors.surface,
   },
-  // Inset by the border so a photo fills the circle instead of overflowing it.
-  avatarImage: {
-    width: AVATAR_SIZE - AVATAR_BORDER * 2,
-    height: AVATAR_SIZE - AVATAR_BORDER * 2,
-  },
+  avatarImage: { width: AVATAR_SIZE, height: AVATAR_SIZE },
   avatarInitials: { ...type.label, color: colors.textMuted },
 
   // `minWidth` is a floor, not a preference. Without it a row carrying two trailing

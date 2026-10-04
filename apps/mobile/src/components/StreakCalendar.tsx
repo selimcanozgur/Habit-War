@@ -30,7 +30,7 @@ const WEEKDAY_LABELS: readonly string[] = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', '
 
 /** Cell height, and therefore the height of each weekday label beside it. */
 const CELL_HEIGHT = 22;
-const FLAME_SIZE = 24;
+const FLAME_SIZE = 16;
 
 export interface StreakCalendarProps {
   /** ISO local dates (YYYY-MM-DD) with at least one completed session. */
@@ -171,7 +171,7 @@ const styles = StyleSheet.create({
   title: { ...type.heading, color: colors.text },
 
   streakGroup: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  streakCount: { ...type.display, color: colors.fireDark, fontVariant: ['tabular-nums'] },
+  streakCount: { ...type.heading, color: colors.fireDark, fontVariant: ['tabular-nums'] },
   streakUnit: { ...type.caption, color: colors.textMuted },
   streakEmpty: { ...type.label, color: colors.textFaint },
 
@@ -187,15 +187,15 @@ const styles = StyleSheet.create({
   },
   weeks: { flex: 1, flexDirection: 'row', gap: spacing.xs, justifyContent: 'space-between' },
   week: { gap: spacing.xs, flex: 1 },
+  // Flat fills, no edges: filled or not is the only thing a cell has to say.
   cell: {
     height: CELL_HEIGHT,
-    borderRadius: radius.sm,
-    backgroundColor: colors.surfaceSunken,
-    borderWidth: 2,
-    borderColor: colors.border,
+    borderRadius: radius.sm - 2,
+    backgroundColor: colors.surfaceRaised,
   },
-  cellActive: { backgroundColor: colors.success, borderColor: colors.successDark },
-  cellToday: { borderColor: colors.accent },
+  cellActive: { backgroundColor: colors.success },
+  // Today is the one cell that earns an edge, since it is the one still in play.
+  cellToday: { borderWidth: 2, borderColor: colors.accent },
   // Invisible but still occupying its slot, so the grid keeps its shape. Hiding it
   // with opacity rather than a transparent fill keeps the cell's colours in tokens.
   cellFuture: { opacity: 0 },

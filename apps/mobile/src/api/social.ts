@@ -63,6 +63,16 @@ export type ChallengeStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'DECLINED' | 
  */
 export interface WireChallengeParticipant extends WireUser {
   readonly xp?: number;
+  readonly score?: number;
+}
+
+export interface WireCheckIn {
+  readonly id?: string;
+  readonly userId?: string;
+  readonly day?: number;
+  readonly note?: string | null;
+  readonly disputed?: boolean;
+  readonly createdAt?: string;
 }
 
 export interface WireChallenge {
@@ -76,6 +86,10 @@ export interface WireChallenge {
   /** Sibling form, accepted as a fallback. */
   readonly challengerXp?: number;
   readonly opponentXp?: number;
+  readonly task?: string | null;
+  readonly days?: number | null;
+  readonly currentDay?: number | null;
+  readonly checkIns?: readonly WireCheckIn[];
 }
 
 /**
@@ -139,8 +153,25 @@ export interface Challenge {
   readonly endsAt: string | null;
   readonly challenger: SocialUser;
   readonly opponent: SocialUser;
+  /** Each side's score: XP for a legacy duel, undisputed days for a task duel. */
   readonly challengerXp: number;
   readonly opponentXp: number;
+  /** The daily task. Null for a legacy XP duel. */
+  readonly task: string | null;
+  /** Length in days. */
+  readonly days: number | null;
+  /** One-based day the duel is on now; null unless running. */
+  readonly currentDay: number | null;
+  readonly checkIns: readonly CheckIn[];
+}
+
+export interface CheckIn {
+  readonly id: string;
+  readonly userId: string;
+  /** One-based day of the duel. */
+  readonly day: number;
+  readonly note: string | null;
+  readonly disputed: boolean;
 }
 
 export interface LeaderboardEntry {
@@ -216,10 +247,26 @@ export function listChallenges(): Promise<{
 
 export function createChallenge(input: {
   opponentUsername: string;
-  category: Category;
+  task: string;
   days: number;
 }): Promise<unknown> {
   return apiRequest('/v1/challenges', { method: 'POST', body: input });
+}
+
+/** "I did today's task." Idempotent per duel day on the server. */
+export function checkInChallenge(challengeId: string, note?: string): Promise<unknown> {
+  return apiRequest(`/v1/challenges/${challengeId}/check-in`, {
+    method: 'POST',
+    body: note ? { note } : {},
+  });
+}
+
+/** Disputes the opponent's check-in: that day stops counting for them. */
+export function disputeCheckIn(challengeId: string, checkInId: string): Promise<unknown> {
+  return apiRequest(`/v1/challenges/${challengeId}/check-ins/${checkInId}/dispute`, {
+    method: 'POST',
+    body: {},
+  });
 }
 
 export function acceptChallenge(challengeId: string): Promise<unknown> {
@@ -366,6 +413,21 @@ export function normaliseChallenges(
         0,
         Math.round(finiteOr(challenge?.opponent?.xp ?? challenge?.opponentXp, 0)),
       ),
+      task: nonEmpty(challenge?.task ?? undefined),
+      days: finiteOr(challenge?.days, 0) > 0 ? Math.round(finiteOr(challenge?.days, 0)) : null,
+      currentDay:
+        finiteOr(challenge?.currentDay, 0) > 0 ? Math.round(finiteOr(challenge?.currentDay, 0)) : null,
+      checkIns: Array.isArray(challenge?.checkIns)
+        ? (challenge.checkIns as readonly WireCheckIn[])
+            .filter((row) => nonEmpty(row?.id) !== null && nonEmpty(row?.userId) !== null)
+            .map((row) => ({
+              id: row.id as string,
+              userId: row.userId as string,
+              day: Math.max(1, Math.round(finiteOr(row.day, 1))),
+              note: nonEmpty(row.note ?? undefined),
+              disputed: row.disputed === true,
+            }))
+        : [],
     };
   });
 }

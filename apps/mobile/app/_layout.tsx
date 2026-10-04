@@ -4,9 +4,8 @@
  * Holds three things every screen depends on: the query client, the font load, and
  * the session. Auth is now this product's own JWT stack — the AuthProvider restores
  * a stored session on launch and hands the API client a fresh token for every request.
- * When no session exists the user is routed to the sign-in screen; once a session
- * is established they go to the tabs. Neither the tabs nor the auth screens have to
- * know about each other.
+ * The group layouts route on it: (tabs) sends a signed-out user to sign-in, (auth)
+ * sends a signed-in one to the tabs.
  */
 
 import {
@@ -17,7 +16,7 @@ import {
   useFonts,
 } from '@expo-google-fonts/nunito';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Redirect, Slot, useSegments } from 'expo-router';
+import { Slot } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useMemo } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
@@ -33,18 +32,15 @@ import { colors } from '../src/theme';
  *
  * Sits between the provider and the rendered route tree. While the stored session
  * is being restored it shows a spinner — the Slot underneath would flash the sign-in
- * screen and then snap to the tabs, which looks like a bug. Once the restore settles,
- * it redirects based on whether a user is present.
+ * screen and then snap to the tabs, which looks like a bug.
  *
- * expo-router's Redirect component replaces the current history entry rather than
- * pushing a new one, so the user cannot "back" into a state that no longer applies.
+ * It does not redirect. A Redirect rendered here would replace the Slot, unmounting
+ * the navigator that has to carry out the navigation; the segments never update and
+ * the redirect fires again on every render. Each group's own layout redirects
+ * instead — (auth) to the tabs when a user is present, (tabs) to sign-in when not.
  */
 function SessionGate({ children }: { children: React.ReactNode }): React.JSX.Element {
-  const { user, isRestoring } = useAuth();
-  const segments = useSegments();
-
-  // The first segment tells us which route group is active.
-  const inAuthGroup = segments[0] === '(auth)';
+  const { isRestoring } = useAuth();
 
   if (isRestoring) {
     return (
@@ -53,12 +49,6 @@ function SessionGate({ children }: { children: React.ReactNode }): React.JSX.Ele
       </View>
     );
   }
-
-  // No session and not already in the auth group → go to sign-in.
-  if (!user && !inAuthGroup) return <Redirect href="/(auth)/sign-in" />;
-
-  // Session exists but still on an auth screen → go to the tab root.
-  if (user && inAuthGroup) return <Redirect href="/(tabs)" />;
 
   return <>{children}</>;
 }
@@ -111,8 +101,8 @@ export default function RootLayout(): React.JSX.Element {
             <AuthProvider>
               <StatusBar style="light" />
               {/*
-                SessionGate reads the auth state inside the AuthProvider and redirects
-                to sign-in when no session exists. The Slot inside it renders the
+                SessionGate holds the route tree back until the stored session is
+                restored; the group layouts redirect from there. The Slot renders the
                 matched child segment — (auth) gets its own Stack, (tabs) gets its own
                 Tab navigator. This root layout does not prescribe either one.
               */}

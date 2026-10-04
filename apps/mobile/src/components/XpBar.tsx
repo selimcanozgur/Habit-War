@@ -36,7 +36,7 @@ const FILL_MS = 900;
 const HOLD_MS = 260;
 const RESET_MS = 180;
 
-const TRACK_HEIGHT = 20;
+const TRACK_HEIGHT = 8;
 
 export interface XpBarProps {
   /** 0..1 progress within the current level. */
@@ -113,14 +113,7 @@ export function XpBar({
 
   const track = (
     <View style={[styles.track, onDark && styles.trackOnDark]}>
-      <Animated.View style={[styles.fill, onDark && styles.fillOnDark, fillStyle]}>
-        {/*
-          A lighter line along the top of the fill. It is what stops a saturated
-          block from looking flat, and it is the cheapest possible way to get there
-          — no gradient dependency, no overdraw.
-        */}
-        <View style={styles.shine} />
-      </Animated.View>
+      <Animated.View style={[styles.fill, onDark && styles.fillOnDark, fillStyle]} />
     </View>
   );
 
@@ -167,7 +160,7 @@ const styles = StyleSheet.create({
   counter: { ...type.label, color: colors.textMuted, fontVariant: ['tabular-nums'] },
   counterOnDark: {
     color: colors.textOnDark,
-    textShadowColor: 'rgba(12, 20, 28, 0.75)',
+    textShadowColor: 'rgba(20, 19, 15, 0.75)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 5,
   },
@@ -183,8 +176,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSunken,
     overflow: 'hidden',
   },
-  // Over an illustration the sunken parchment would read as a light bar in its own
-  // right, so the empty portion becomes a translucent well instead.
+  // Over an illustration a solid track would read as a light bar in its own right, so
+  // the empty portion becomes a translucent well instead.
   trackOnDark: { backgroundColor: 'rgba(255, 255, 255, 0.18)' },
   fill: {
     height: '100%',
@@ -194,14 +187,7 @@ const styles = StyleSheet.create({
     // A fill at 0% must not show a rounded stub of colour.
     minWidth: 0,
   },
-  // XP violet rather than the accent blue: on the hero this bar is the character's
+  // XP violet: on the hero this bar is the character's
   // progress, which is the colour XP is counted in everywhere else.
   fillOnDark: { backgroundColor: colors.xp },
-  shine: {
-    height: 5,
-    marginTop: 4,
-    marginHorizontal: 6,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(255, 255, 255, 0.42)',
-  },
 });

@@ -5,11 +5,9 @@
     "scheme": "habitwar",
     "version": "0.0.1",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#0B0D14"
     },
@@ -20,10 +18,7 @@
     "android": {
       "package": "app.habitwar.mobile",
       "adaptiveIcon": {
-        "backgroundColor": "#0B0D14",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#0B0D14"
       },
       "predictiveBackGestureEnabled": false
     },

@@ -10,13 +10,22 @@ import type { FastifyInstance } from 'fastify';
 
 import { ChallengeService } from './challenges.js';
 import { listAchievements } from './achievements.js';
+import { HuntService } from './hunts.js';
 import { SeasonService } from './seasons.js';
-import { challengeIdParams, createChallengeBody, listChallengesQuery } from './schemas.js';
+import {
+  challengeIdParams,
+  checkInBody,
+  checkInParams,
+  createChallengeBody,
+  monsterKeyParams,
+  listChallengesQuery,
+} from './schemas.js';
 
 export async function gameRoutes(app: FastifyInstance): Promise<void> {
   const now = (): Date => new Date();
   const challenges = new ChallengeService({ prisma: app.prisma, now });
   const seasons = new SeasonService({ prisma: app.prisma, now });
+  const hunts = new HuntService({ prisma: app.prisma, now });
 
   app.addHook('preHandler', app.requireUser);
 
@@ -37,7 +46,8 @@ export async function gameRoutes(app: FastifyInstance): Promise<void> {
     const challenge = await challenges.create({
       userId: request.userId,
       opponentUsername: body.opponentUsername,
-      category: body.category,
+      task: body.task,
+      category: body.category ?? null,
       days: body.days,
     });
     return reply.status(201).send({ challenge });
@@ -53,8 +63,30 @@ export async function gameRoutes(app: FastifyInstance): Promise<void> {
     return { challenge: await challenges.decline(request.userId, id) };
   });
 
+  app.post('/challenges/:id/check-in', async (request) => {
+    const { id } = challengeIdParams.parse(request.params);
+    const body = checkInBody.parse(request.body ?? {});
+    return { challenge: await challenges.checkIn(request.userId, id, body.note ?? null) };
+  });
+
+  app.post('/challenges/:id/check-ins/:checkInId/dispute', async (request) => {
+    const { id, checkInId } = checkInParams.parse(request.params);
+    return { challenge: await challenges.dispute(request.userId, id, checkInId) };
+  });
+
   app.get('/achievements', async (request) => {
     return listAchievements(app.prisma, request.userId);
+  });
+
+  /** The bestiary as this player sees it, with their current hunt and trophies. */
+  app.get('/monsters', async (request) => {
+    return hunts.bestiary(request.userId);
+  });
+
+  /** Starts hunting a monster; any hunt under way is left behind. */
+  app.post('/monsters/:key/hunt', async (request) => {
+    const { key } = monsterKeyParams.parse(request.params);
+    return { hunt: await hunts.start(request.userId, key) };
   });
 
   app.get('/seasons/current', async () => {

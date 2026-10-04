@@ -10,9 +10,8 @@
  * because a post rejected after typing 600 characters is a worse experience than one
  * that simply stops accepting them.
  *
- * The field itself is drawn as a recessed well inside the card: parchment on
- * parchment with a hairline border does not read as something you can type into, so
- * the well takes the darker paper tone and a real edge.
+ * The field itself is drawn as a recessed well inside the card: its fill, not an
+ * edge, is what says "type here" — the way a system text field reads.
  */
 
 import { useCallback, useState } from 'react';
@@ -135,8 +134,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     backgroundColor: colors.surfaceRaised,
     borderRadius: radius.md,
-    borderWidth: 2,
-    borderColor: colors.border,
     paddingHorizontal: spacing.md,
   },
   wellExpanded: { alignItems: 'flex-start', paddingVertical: spacing.sm },

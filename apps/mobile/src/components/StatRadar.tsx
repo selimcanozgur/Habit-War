@@ -28,9 +28,10 @@
  * stat sheet keeps a stable reading order everywhere it appears, exactly as the
  * radar would have.
  *
- * Each bar is built like the XP bar — thick, fully rounded, with a lighter line along
- * the top of the fill — because that bar is the app's signature object and a stat is
- * the same idea at a smaller size. On parchment a thin grey rule would vanish.
+ * Each bar is built like the XP bar — thin, fully rounded, a flat fill on a grey
+ * track — because that bar is the app's signature object and a stat is the same idea
+ * at a smaller size. The value beside it is ink, not the stat colour: the bar already
+ * carries the colour, and six coloured numbers in a column read as decoration.
  *
  * Bars animate their width on mount and whenever a value changes, reusing XpBar's
  * approach: a shared value driven with `withTiming` and read back in an animated
@@ -63,10 +64,8 @@ const STAGGER_MS = 60;
  */
 const MIN_SCALE = 10;
 
-/** Two-thirds of the XP bar's track: still an object, but not competing with it. */
-const TRACK_HEIGHT = 14;
-/** Reused from XpBar: a white veil over a saturated fill, not a new colour. */
-const SHINE_OPACITY = 0.42;
+/** Matches the XP bar's track. */
+const TRACK_HEIGHT = 8;
 
 export interface StatRadarProps {
   /** Displayed stat points, one entry per stat. */
@@ -160,12 +159,10 @@ function StatRow({ stat, value, ratio, delayMs }: StatRowProps): React.JSX.Eleme
           A hairline of colour stays visible even at zero, so an untouched stat still
           carries its identity colour and the row never looks broken.
         */}
-        <Animated.View style={[styles.fill, { backgroundColor: color }, fillStyle]}>
-          <View style={styles.shine} />
-        </Animated.View>
+        <Animated.View style={[styles.fill, { backgroundColor: color }, fillStyle]} />
       </View>
 
-      <Text style={[styles.statValue, { color }]}>{value}</Text>
+      <Text style={styles.statValue}>{value}</Text>
     </View>
   );
 }
@@ -188,25 +185,17 @@ const styles = StyleSheet.create({
     flex: 1,
     height: TRACK_HEIGHT,
     borderRadius: radius.pill,
-    backgroundColor: colors.surfaceSunken,
+    backgroundColor: colors.surfaceRaised,
     overflow: 'hidden',
   },
   fill: {
     height: '100%',
     borderRadius: radius.pill,
-    justifyContent: 'flex-start',
     minWidth: spacing.xs,
-  },
-  shine: {
-    height: 3,
-    marginTop: 2,
-    marginHorizontal: spacing.xs,
-    borderRadius: radius.pill,
-    backgroundColor: colors.textOnAccent,
-    opacity: SHINE_OPACITY,
   },
   statValue: {
     ...type.label,
+    color: colors.text,
     width: 32,
     textAlign: 'right',
     fontVariant: ['tabular-nums'],

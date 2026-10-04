@@ -6,10 +6,10 @@
  * stays readable so the user can see how to earn them — a locked badge with a hidden
  * description is just a grey square.
  *
- * Earned and locked are separated by more than opacity, which on parchment is only a
- * faint wash and reads as "still loading". An earned badge is a parchment card with
- * a solid tier-coloured outline and a filled medal; a locked one is sunken
- * into the page behind a dashed outline, with a padlock where the medal would be. The
+ * Earned and locked are separated by more than opacity, which reads as "still
+ * loading". An earned badge is a filled medal in its tier colour; a locked one is a
+ * grey disc with a padlock where the medal would be, and says "Kilitli" in words. No
+ * tiles and no outlines — the medals are the shelf, as on an awards page. The
  * difference survives a screenshot, a bright screen, and colour blindness.
  *
  * Earned badges are sorted first, then by tier descending, so the shelf leads with
@@ -127,7 +127,7 @@ export function AchievementShelf({ achievements }: AchievementShelfProps): React
           return (
             <Pressable
               key={item.id}
-              style={[styles.badge, earned ? { borderColor: accent } : styles.badgeLocked]}
+              style={({ pressed }) => [styles.badge, pressed && styles.badgePressed]}
               onPress={() => {
                 void Haptics.selectionAsync();
                 setOpenId(isOpen ? null : item.id);
@@ -143,9 +143,7 @@ export function AchievementShelf({ achievements }: AchievementShelfProps): React
               <View
                 style={[
                   styles.medal,
-                  earned
-                    ? { backgroundColor: accent, borderColor: accent }
-                    : styles.medalLocked,
+                  earned ? { backgroundColor: accent } : styles.medalLocked,
                 ]}
               >
                 <Icon
@@ -197,47 +195,35 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   title: { ...type.heading, color: colors.text },
   counterGroup: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs },
-  counterEarned: { ...type.display, color: colors.text, fontVariant: ['tabular-nums'] },
+  counterEarned: { ...type.heading, color: colors.text, fontVariant: ['tabular-nums'] },
   counterTotal: { ...type.caption, color: colors.textMuted, fontVariant: ['tabular-nums'] },
   empty: { ...type.body, color: colors.textFaint, lineHeight: 21 },
 
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', rowGap: spacing.md },
   badge: {
-    // Three per row at phone widths, and the cards reflow rather than clip on wider
-    // screens. Percentages keep that working without measuring the container.
-    width: '31%',
-    minWidth: 96,
-    flexGrow: 1,
+    // Three per row, fixed: no grow, so a lone badge on the last row keeps its column
+    // instead of stretching across the card.
+    width: '33.33%',
     alignItems: 'center',
-    gap: spacing.xs,
-    padding: spacing.sm,
+    gap: 2,
+    paddingHorizontal: spacing.xs,
     borderRadius: radius.md,
-    borderWidth: 2,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
   },
-  // Sunken and dashed, not merely dimmed: the user should read "not yet" rather than
-  // "not loaded", and the description must stay legible.
-  badgeLocked: {
-    backgroundColor: colors.surfaceSunken,
-    borderColor: colors.borderStrong,
-    borderStyle: 'dashed',
-  },
+  badgePressed: { opacity: 0.6 },
 
   medal: {
-    width: 44,
-    height: 44,
+    width: 48,
+    height: 48,
     borderRadius: radius.pill,
-    borderWidth: 2,
-    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: spacing.xs,
   },
-  medalLocked: { backgroundColor: colors.surfaceRaised, borderColor: colors.borderStrong },
+  medalLocked: { backgroundColor: colors.surfaceRaised },
 
   badgeName: { ...type.caption, color: colors.text, textAlign: 'center' },
   lockedText: { color: colors.textMuted },
-  badgeTier: { ...type.overline, textTransform: 'uppercase' },
+  badgeTier: { ...type.caption },
   badgeDescription: {
     ...type.caption,
     color: colors.textMuted,

@@ -37,10 +37,10 @@ import { XpBar } from './XpBar';
 /**
  * The scrim over the world behind the card.
  *
- * Written as rgba rather than a token because `colors.stone` is opaque and the
- * overlay needs to let the screen beneath show through; the channels are stone's.
+ * Written as rgba rather than a token because the overlay needs to let the screen
+ * beneath show through; the channels are Carbon's.
  */
-const OVERLAY_TINT = 'rgba(30, 30, 28, 0.78)';
+const OVERLAY_TINT = 'rgba(49, 47, 39, 0.78)';
 
 const CHIP_ICON_SIZE = 16;
 const NOTICE_ICON_SIZE = 18;
@@ -86,7 +86,7 @@ export function SessionReward({
         <Text style={styles.xp}>+{result.xp} XP</Text>
 
         <View style={styles.chips}>
-          <View style={[styles.chip, { borderColor: statColor }]}>
+          <View style={styles.chip}>
             <Icon name={statIcon} size={CHIP_ICON_SIZE} color={statColor} />
             <Text style={[styles.chipText, { color: statColor }]}>
               +{result.statXp} {statLabels[result.stat]}
@@ -101,6 +101,29 @@ export function SessionReward({
             </View>
           )}
         </View>
+
+        {/*
+          The same session, seen from the game: what it did to the hunted monster. The
+          XP above is what the user earned; this is what that XP was worth in the fight.
+        */}
+        {result.monster && (
+          <View style={[styles.monster, result.monster.defeated && styles.monsterDefeated]}>
+            <Icon
+              name={result.monster.defeated ? 'trophy' : 'swords'}
+              size={NOTICE_ICON_SIZE}
+              color={result.monster.defeated ? colors.goldDark : colors.danger}
+            />
+            <Text style={styles.monsterText}>
+              {result.monster.defeated
+                ? result.monster.isBoss
+                  ? `${result.monster.name} yenildi! Unvanın: ${result.monster.title}`
+                  : `${result.monster.name} (Sv ${result.monster.stage}) yenildi! Sıradaki seviye seni bekliyor.`
+                : `${result.monster.name}: −${result.monster.damage} can${
+                    result.monster.weakness ? ' · zayıf noktası!' : ''
+                  } · kalan ${result.monster.hp}`}
+            </Text>
+          </View>
+        )}
 
         {/*
           The cap is surfaced, never hidden. A user who silently earns a fifth of what
@@ -147,14 +170,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: spacing.lg,
   },
-  card: {
-    ...cardStyle,
-    // Gold rather than the usual warm border: against the dimmed world the card
-    // should read as the one lit object on the screen.
-    borderColor: colors.goldDark,
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
+  // Against the dimmed world the card is already the one lit object on the screen;
+  // it needs no edge to say so.
+  card: { ...cardStyle, borderRadius: radius.lg + 4, padding: spacing.lg, gap: spacing.md },
   habit: { ...type.label, color: colors.textMuted, textAlign: 'center' },
   xp: { ...type.display, color: colors.xp, textAlign: 'center' },
 
@@ -166,8 +184,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs + 2,
     borderRadius: radius.pill,
-    borderWidth: 2,
-    borderColor: colors.border,
     backgroundColor: colors.surfaceRaised,
   },
   chipText: { ...type.label, color: colors.textMuted },
@@ -181,6 +197,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.fireSoft,
   },
   capNoticeText: { ...type.caption, color: colors.fireDark, flex: 1 },
+
+  monster: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.dangerSoft,
+  },
+  monsterDefeated: { backgroundColor: colors.goldSoft },
+  monsterText: { ...type.label, color: colors.text, flex: 1 },
 
   barWrapper: { marginTop: spacing.xs },
   levelBadge: {

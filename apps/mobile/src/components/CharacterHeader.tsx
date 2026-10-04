@@ -10,10 +10,9 @@
  * strip carrying the bar would read as a patch taped onto the artwork; the point is
  * that the character and their progress are one object.
  *
- * The three standing badges stay stone-dark. They are what the user *is* — streak,
- * XP, stat points — as opposed to what they recorded today, which is the parchment
- * sheet below. Keeping that distinction in the material is what stops the screen
- * from reading as one undifferentiated list.
+ * The three standing badges are a translucent material over the scene rather than
+ * opaque panels: they belong to the illustration, like the name above them, and an
+ * opaque slab with a frame would cut three holes in the artwork.
  */
 
 import { Image, StyleSheet, Text, View } from 'react-native';
@@ -169,9 +168,8 @@ const styles = StyleSheet.create({
     width: AVATAR_SIZE,
     height: AVATAR_SIZE,
     borderRadius: radius.pill,
-    // Gold, because on the illustration a warm grey ring would read as a smudge.
-    borderWidth: 3,
-    borderColor: colors.gold,
+    borderWidth: 2,
+    borderColor: colors.textOnDark,
   },
   prestigeChip: {
     flexDirection: 'row',
@@ -188,7 +186,7 @@ const styles = StyleSheet.create({
   level: {
     ...type.heading,
     color: colors.textOnDark,
-    textShadowColor: 'rgba(12, 20, 28, 0.75)',
+    textShadowColor: 'rgba(20, 19, 15, 0.75)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 5,
   },
@@ -198,19 +196,18 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     gap: spacing.xs,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm + 4,
     paddingHorizontal: spacing.xs,
-    // Softer than a card's corner: these sit on the scene as rounded tokens rather
-    // than as three small panels.
-    borderRadius: radius.lg,
-    backgroundColor: colors.stone,
-    borderWidth: 2,
-    borderColor: colors.frame,
+    borderRadius: radius.md,
+    // A light material over the scrim: lifts the figures off the art without
+    // painting an opaque panel over it.
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
   },
   badgeValue: { ...type.title, color: colors.textOnDark, fontVariant: ['tabular-nums'] },
   badgeLabel: {
-    ...type.overline,
-    color: colors.textOnDarkMuted,
+    ...type.caption,
+    color: colors.textOnDark,
+    opacity: 0.8,
     textAlign: 'center',
   },
 });

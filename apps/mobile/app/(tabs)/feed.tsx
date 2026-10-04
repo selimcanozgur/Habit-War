@@ -246,9 +246,8 @@ export default function FeedScreen(): React.JSX.Element {
       >
         {/*
           The segment lives inside the hero, so the scope is stated where the screen
-          names itself rather than in a strip of its own. The track is stone because
-          it sits on the illustration; a parchment track there would read as a card
-          floating on the art.
+          names itself rather than in a strip of its own. Built like the iOS segmented
+          control: a translucent track over the art and a solid white thumb.
         */}
         <ScreenHero image="feed" title="Akış">
           {/*
@@ -275,7 +274,7 @@ export default function FeedScreen(): React.JSX.Element {
                   <Icon
                     name={item.icon}
                     size={ICON_SIZE}
-                    color={active ? colors.textOnAccent : colors.textOnDarkMuted}
+                    color={active ? colors.text : colors.textOnDark}
                   />
                   <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
                     {item.label}
@@ -420,20 +419,13 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   flex: { flex: 1 },
 
-  /**
-   * A recessed track with the selected tab raised out of it. The sunken fill is what
-   * makes the unselected tab read as unselected without needing a border on each one.
-   * XP purple for the selection: switching scope is a move through the world, and
-   * purple is what this language reserves for that.
-   */
+  /** A translucent track with a white thumb, as the system segmented control draws it. */
   segment: {
     flexDirection: 'row',
-    backgroundColor: colors.stone,
-    borderRadius: radius.pill,
-    borderWidth: 2,
-    borderColor: colors.frame,
-    padding: spacing.xs,
-    gap: spacing.xs,
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    borderRadius: radius.md,
+    padding: 3,
+    gap: 3,
   },
   segmentItem: {
     flex: 1,
@@ -441,19 +433,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
+    paddingVertical: spacing.sm - 1,
+    borderRadius: radius.md - 3,
   },
-  segmentItemActive: { backgroundColor: colors.xp },
-  segmentText: { ...type.label, color: colors.textOnDarkMuted },
-  segmentTextActive: { color: colors.textOnAccent },
+  segmentItemActive: { backgroundColor: colors.surface },
+  segmentText: { ...type.label, color: colors.textOnDark },
+  segmentTextActive: { color: colors.text },
 
-  /** Pulled up so the first card overlaps the hero's rounded corner. */
   list: {
     padding: spacing.md,
     gap: spacing.md,
     paddingBottom: spacing.xxl,
-    marginTop: -spacing.md,
   },
   footerSpinner: { marginVertical: spacing.lg },
 

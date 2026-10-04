@@ -8,7 +8,7 @@
 import type { FastifyInstance } from 'fastify';
 
 import { SessionService } from './service.js';
-import { completeSessionBody, sessionIdParams, startSessionBody } from './schemas.js';
+import { completeSessionBody, sessionIdParams, startSessionBody, habitIdParams, logCountBody } from './schemas.js';
 
 export async function sessionRoutes(app: FastifyInstance): Promise<void> {
   const sessions = new SessionService({ prisma: app.prisma, now: () => new Date() });
@@ -32,6 +32,28 @@ export async function sessionRoutes(app: FastifyInstance): Promise<void> {
       verification: body.verification,
       proofUrl: body.proofUrl,
     });
+  });
+
+  /** A count habit's quick log, scored as the session it is worth. */
+  app.post('/habits/:id/log', async (request) => {
+    const { id } = habitIdParams.parse(request.params);
+    const body = logCountBody.parse(request.body);
+    return sessions.logCount({
+      userId: request.userId,
+      habitId: id,
+      count: body.count,
+      clientRequestId: body.clientRequestId,
+    });
+  });
+
+  app.post('/sessions/:id/pause', async (request) => {
+    const { id } = sessionIdParams.parse(request.params);
+    return { session: await sessions.pause(request.userId, id) };
+  });
+
+  app.post('/sessions/:id/resume', async (request) => {
+    const { id } = sessionIdParams.parse(request.params);
+    return { session: await sessions.resume(request.userId, id) };
   });
 
   app.post('/sessions/:id/abandon', async (request) => {

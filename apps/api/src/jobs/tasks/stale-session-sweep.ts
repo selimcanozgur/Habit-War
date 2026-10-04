@@ -9,16 +9,17 @@
  * product until they happen to hit a path that sweeps. It also keeps a row in the
  * `@@index([status, startedAt])` working set that nothing will ever resolve.
  *
- * The cutoff is `MAX_SESSION_MINUTES` — imported, never redefined. It is the same
- * boundary the XP engine uses to decide what is creditable, so a session past it has
- * already stopped being able to earn anything. Abandoning it destroys no value.
+ * The cutoff is `STALE_SESSION_MINUTES` — imported, never redefined: the XP engine's
+ * creditable maximum plus the pause budget, so a session past it has already stopped
+ * being able to earn anything even if it spent the whole budget paused. Abandoning it
+ * destroys no value.
  *
  * IDEMPOTENT by construction: the filter selects `status: 'ACTIVE'` and the write
  * leaves `ABANDONED`, so a second run matches nothing. One `updateMany`, no loop,
  * no transaction — the whole job is a single statement whose `count` is the answer.
  */
 
-import { MAX_SESSION_MINUTES } from '@habitwar/domain';
+import { STALE_SESSION_MINUTES } from '@habitwar/domain';
 
 import type { JobContext, JobOutcome } from '../context.js';
 
@@ -33,11 +34,11 @@ export interface StaleSessionSweepResult extends JobOutcome {
  *
  * Deliberately the same arithmetic as `SessionService.#closeStaleSessions`, which is
  * private and cannot be imported. If that boundary ever changes, both sides read
- * `MAX_SESSION_MINUTES`, so they change together — the duplicated line is the
- * subtraction, not the rule.
+ * `STALE_SESSION_MINUTES` — the maximum creditable length plus the pause budget —
+ * so they change together; the duplicated line is the subtraction, not the rule.
  */
 export function staleSessionCutoff(now: Date): Date {
-  return new Date(now.getTime() - MAX_SESSION_MINUTES * 60_000);
+  return new Date(now.getTime() - STALE_SESSION_MINUTES * 60_000);
 }
 
 export async function runStaleSessionSweep(

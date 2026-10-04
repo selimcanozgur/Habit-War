@@ -8,20 +8,17 @@
  * a comparison. The marker is what makes the bar a race rather than a gauge: past it
  * you are winning, short of it you are not.
  *
- * The bar animates for the same reason the XP bar does, and carries the same
- * highlight along the top of its fill, so the two read as one language.
- *
- * The board is stone rather than parchment. A duel is the one thing on this screen
- * that is not a record of what the user did but a contest still running, and putting
- * it on the dark ground separates it from the parchment cards around it — the same
- * move the season banner makes.
+ * The bar animates for the same reason the XP bar does, so the two read as one
+ * language. The card is an ordinary card: the scores and the bar are what make it a
+ * contest, and the verdict under the bar says the one word the card exists to say.
+ * Time remaining is stated once, in the header, rather than again as a second bar.
  *
  * A pending duel has no scores yet, so it renders as an invitation with
  * accept/decline instead of a scoreboard.
  */
 
-import { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -30,24 +27,20 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import {
-  challengeElapsedRatio,
   describeCategory,
   formatTimeRemaining,
   type Challenge,
+  type CheckIn,
 } from '../api/social';
 import { colors, radius, spacing, type } from '../theme';
-import { Button } from './Button';
+import { Button, cardStyle, ChipButton } from './Button';
 import { Icon } from './Icon';
 
 /** Matches the XP bar's fill duration so the two read as one visual language. */
 const FILL_MS = 900;
 
-/** Thick enough to carry the highlight line that marks this language's bars. */
-const TRACK_HEIGHT = 18;
-/** The elapsed-time bar is deliberately slighter: it is context, not the score. */
-const TIME_TRACK_HEIGHT = 6;
-/** Reused from XpBar: a white veil over a saturated fill, not a new colour. */
-const SHINE_OPACITY = 0.42;
+/** Matches the XP bar's track. */
+const TRACK_HEIGHT = 8;
 
 const ICON_SIZE = 18;
 
@@ -58,14 +51,33 @@ export interface DuelCardProps {
   readonly onAccept?: ((challengeId: string) => void) | undefined;
   readonly onDecline?: ((challengeId: string) => void) | undefined;
   readonly busy?: boolean;
+  /**
+   * The way into the work a running duel scores: start a session in its category, or
+   * add a habit for it when there is none. Without it the card shows a race with no
+   * way to run, and nothing says that the score comes from the Bugün timer.
+   */
+  readonly action?: { readonly label: string; readonly onPress: () => void } | undefined;
+  /** Task duels: "I did today's task". */
+  readonly onCheckIn?: ((challengeId: string) => void) | undefined;
+  /** Task duels: dispute one of the opponent's check-ins. */
+  readonly onDispute?: ((challengeId: string, checkInId: string) => void) | undefined;
 }
 
-export function DuelCard({
+/**
+ * Picks the card for the duel's kind. Task duels — every duel opened now — get the
+ * day board; legacy XP duels keep the race bar they were opened with.
+ */
+export function DuelCard(props: DuelCardProps): React.JSX.Element {
+  return props.challenge.task !== null ? <TaskDuelCard {...props} /> : <XpDuelCard {...props} />;
+}
+
+function XpDuelCard({
   challenge,
   viewerId,
   onAccept,
   onDecline,
   busy = false,
+  action,
 }: DuelCardProps): React.JSX.Element {
   // Fall back to "you are the challenger" when the viewer is unknown, so the card
   // still labels a side rather than rendering two anonymous opponents.
@@ -95,7 +107,6 @@ export function DuelCard({
 
   const isPending = challenge.status === 'PENDING';
   const isFinished = challenge.status === 'COMPLETED';
-  const timeElapsed = challengeElapsedRatio(challenge.startsAt, challenge.endsAt);
 
   const leading = myXp > theirXp;
   const tied = myXp === theirXp;
@@ -114,9 +125,9 @@ export function DuelCard({
             size={ICON_SIZE}
             color={
               isFinished
-                ? colors.textOnDarkMuted
+                ? colors.textFaint
                 : isPending
-                  ? colors.accentBright
+                  ? colors.accent
                   : colors.fire
             }
           />
@@ -126,7 +137,7 @@ export function DuelCard({
           <Icon
             name="hourglass"
             size={ICON_SIZE}
-            color={isFinished ? colors.textOnDarkMuted : colors.gold}
+            color={colors.textFaint}
           />
           <Text style={[styles.time, isFinished && styles.timeFinished]}>
             {isFinished ? 'Bitti' : isPending ? 'Davet bekliyor' : formatTimeRemaining(challenge.endsAt)}
@@ -181,28 +192,15 @@ export function DuelCard({
             accessibilityRole="progressbar"
             accessibilityLabel={`Düello skoru: sen ${myXp} XP, ${theirs.displayName} ${theirXp} XP`}
           >
-            <Animated.View style={[styles.fill, { backgroundColor: leadColor }, fillStyle]}>
-              <View style={styles.shine} />
-            </Animated.View>
+            <Animated.View style={[styles.fill, { backgroundColor: leadColor }, fillStyle]} />
             {/* The halfway line. Crossing it is the whole message of the card, so it
                 is drawn over the fill rather than behind it. */}
             <View style={styles.midMarker} pointerEvents="none" />
           </View>
 
-          {/* The verdict sits on the bar itself, as a parchment pill straddling it —
-              the one word the card exists to say, placed where the eye already is. */}
-          <View
-            style={[
-              styles.verdict,
-              {
-                backgroundColor: tied
-                  ? colors.surfaceRaised
-                  : leading
-                    ? colors.successSoft
-                    : colors.fireSoft,
-              },
-            ]}
-          >
+          {/* The verdict, directly under the bar it judges: the one word the card
+              exists to say, placed where the eye already is. */}
+          <View style={styles.verdict}>
             <Icon
               name={tied ? 'minus' : leading ? 'xp-bolt-filled' : 'alert'}
               size={ICON_SIZE}
@@ -218,14 +216,18 @@ export function DuelCard({
             </Text>
           </View>
 
-          {/* Time is a separate, thinner bar: knowing you are behind matters less if
-              the duel has six days left, and more if it has six hours. */}
-          {!isFinished && (
-            <View style={styles.timeTrack}>
-              <View style={[styles.timeFill, { width: `${Math.round(timeElapsed * 100)}%` }]} />
-            </View>
-          )}
         </>
+      )}
+
+      {action !== undefined && !isPending && !isFinished && (
+        <Button
+          label={action.label}
+          size="small"
+          disabled={busy}
+          onPress={action.onPress}
+          accessibilityLabel={action.label}
+          style={styles.action}
+        />
       )}
 
       {isPending && !viewerIsChallenger && (onAccept !== undefined || onDecline !== undefined) && (
@@ -260,60 +262,280 @@ export function DuelCard({
   );
 }
 
+/**
+ * A task duel: the task, a row of days for each side, and today's action.
+ *
+ * Read as two attendance rows rather than a race: the question a player has is "did
+ * I do today's, and is my friend keeping up?", and a row of days answers both at a
+ * glance. A day is filled when checked in, struck when disputed, ringed when it is
+ * today and still open.
+ */
+function TaskDuelCard({
+  challenge,
+  viewerId,
+  onAccept,
+  onDecline,
+  onCheckIn,
+  onDispute,
+  busy = false,
+}: DuelCardProps): React.JSX.Element {
+  // The check-in whose dispute is armed; a second tap confirms. A dispute takes a
+  // friend's point away, so it is never one tap.
+  const [armed, setArmed] = useState<string | null>(null);
+
+  const viewerIsChallenger = viewerId === null ? true : challenge.challenger.id === viewerId;
+  const mine = viewerIsChallenger ? challenge.challenger : challenge.opponent;
+  const theirs = viewerIsChallenger ? challenge.opponent : challenge.challenger;
+  const myScore = viewerIsChallenger ? challenge.challengerXp : challenge.opponentXp;
+  const theirScore = viewerIsChallenger ? challenge.opponentXp : challenge.challengerXp;
+
+  const isPending = challenge.status === 'PENDING';
+  const isActive = challenge.status === 'ACTIVE';
+  const isFinished = challenge.status === 'COMPLETED';
+  const days = challenge.days ?? 0;
+  const today = challenge.currentDay;
+
+  const myCheckIns = challenge.checkIns.filter((row) => row.userId === mine.id);
+  const theirCheckIns = challenge.checkIns.filter((row) => row.userId === theirs.id);
+  const doneToday = today !== null && myCheckIns.some((row) => row.day === today);
+  // Newest first, and only what can still be disputed.
+  const disputable = isActive ? [...theirCheckIns].reverse().filter((row) => !row.disputed) : [];
+
+  const verdict = isFinished
+    ? myScore > theirScore
+      ? 'Kazandın'
+      : myScore < theirScore
+        ? 'Kaybettin'
+        : 'Berabere'
+    : null;
+
+  return (
+    <View style={styles.card}>
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <Icon name="swords" size={ICON_SIZE} color={isFinished ? colors.textFaint : colors.accent} />
+          <Text style={styles.task} numberOfLines={1}>
+            {challenge.task}
+          </Text>
+        </View>
+        <View style={styles.headerRight}>
+          <Icon name="hourglass" size={ICON_SIZE} color={colors.textFaint} />
+          <Text style={[styles.time, isFinished && styles.timeFinished]}>
+            {isFinished
+              ? 'Bitti'
+              : isPending
+                ? `${days} gün · davet bekliyor`
+                : today !== null
+                  ? `${today}. gün / ${days}`
+                  : formatTimeRemaining(challenge.endsAt)}
+          </Text>
+        </View>
+      </View>
+
+      {isPending ? (
+        <Text style={styles.pendingNote}>
+          {challenge.challenger.id === viewerId || viewerId === null
+            ? `${theirs.displayName} davetini kabul edince düello başlar.`
+            : `${theirs.displayName} seni ${days} gün boyunca her gün bu görevi yapmaya çağırıyor.`}
+        </Text>
+      ) : (
+        <View style={styles.board}>
+          <DayRow
+            name="Sen"
+            score={myScore}
+            days={days}
+            today={today}
+            checkIns={myCheckIns}
+            leading={myScore >= theirScore}
+          />
+          <DayRow
+            name={theirs.displayName}
+            score={theirScore}
+            days={days}
+            today={today}
+            checkIns={theirCheckIns}
+            leading={theirScore > myScore}
+          />
+        </View>
+      )}
+
+      {verdict !== null && <Text style={styles.verdictLine}>{verdict} · {myScore} – {theirScore} gün</Text>}
+
+      {isActive && today !== null && onCheckIn !== undefined && (
+        doneToday ? (
+          <View style={styles.doneRow}>
+            <Icon name="check-circle-filled" size={ICON_SIZE} color={colors.success} />
+            <Text style={styles.doneText}>Bugünkü görev tamam</Text>
+          </View>
+        ) : (
+          <Button
+            label="Bugünkü görevi yaptım"
+            size="small"
+            disabled={busy}
+            onPress={() => onCheckIn(challenge.id)}
+            accessibilityLabel={`${challenge.task ?? 'Görev'} bugün yapıldı olarak işaretle`}
+            style={styles.action}
+          />
+        )
+      )}
+
+      {onDispute !== undefined && disputable.length > 0 && (
+        <View style={styles.disputeList}>
+          {disputable.slice(0, 3).map((row) => (
+            <View key={row.id} style={styles.disputeRow}>
+              <Text style={styles.disputeText} numberOfLines={2}>
+                {theirs.displayName} · {row.day}. gün yaptı
+                {row.note ? ` — “${row.note}”` : ''}
+              </Text>
+              {armed === row.id ? (
+                <ChipButton
+                  label="İtirazı onayla"
+                  tone="danger"
+                  disabled={busy}
+                  onPress={() => {
+                    setArmed(null);
+                    onDispute(challenge.id, row.id);
+                  }}
+                  accessibilityLabel={`${row.day}. gün işaretine itirazı onayla`}
+                />
+              ) : (
+                <Pressable
+                  onPress={() => setArmed(row.id)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${theirs.displayName} ${row.day}. gün işaretine itiraz et`}
+                >
+                  <Text style={styles.disputeLink}>İtiraz et</Text>
+                </Pressable>
+              )}
+            </View>
+          ))}
+        </View>
+      )}
+
+      {isPending && challenge.opponent.id === viewerId && (onAccept !== undefined || onDecline !== undefined) && (
+        <View style={styles.actions}>
+          {onAccept !== undefined && (
+            <Button
+              label="Kabul et"
+              tone="success"
+              size="small"
+              block={false}
+              style={styles.actionButton}
+              disabled={busy}
+              onPress={() => onAccept(challenge.id)}
+              accessibilityLabel={`${theirs.displayName} ile düelloyu kabul et`}
+            />
+          )}
+          {onDecline !== undefined && (
+            <Button
+              label="Reddet"
+              tone="neutral"
+              size="small"
+              block={false}
+              style={styles.actionButton}
+              disabled={busy}
+              onPress={() => onDecline(challenge.id)}
+              accessibilityLabel={`${theirs.displayName} ile düelloyu reddet`}
+            />
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** One side's attendance: name, a dot per day, and the score. */
+function DayRow({
+  name,
+  score,
+  days,
+  today,
+  checkIns,
+  leading,
+}: {
+  readonly name: string;
+  readonly score: number;
+  readonly days: number;
+  readonly today: number | null;
+  readonly checkIns: readonly CheckIn[];
+  readonly leading: boolean;
+}): React.JSX.Element {
+  const byDay = new Map(checkIns.map((row) => [row.day, row]));
+  return (
+    <View
+      style={styles.dayRow}
+      accessible
+      accessibilityLabel={`${name}: ${score} / ${days} gün`}
+    >
+      <Text style={styles.dayRowName} numberOfLines={1}>
+        {name}
+      </Text>
+      <View style={styles.dots}>
+        {Array.from({ length: days }, (_, index) => {
+          const day = index + 1;
+          const row = byDay.get(day);
+          const isToday = today === day;
+          const past = today === null || day < today;
+          return (
+            <View
+              key={day}
+              style={[
+                styles.dot,
+                row && !row.disputed && styles.dotDone,
+                row?.disputed && styles.dotDisputed,
+                !row && isToday && styles.dotToday,
+                !row && !isToday && !past && styles.dotFuture,
+              ]}
+            >
+              {row && !row.disputed && <Icon name="check-circle-filled" size={12} color={colors.textOnAccent} />}
+              {row?.disputed && <Icon name="x" size={10} color={colors.danger} />}
+            </View>
+          );
+        })}
+      </View>
+      <Text style={[styles.dayRowScore, leading && score > 0 && styles.dayRowScoreLeading]}>
+        {score}
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  // Not `cardStyle`: this one panel is stone, framed in wood, so it reads as the
-  // contest board rather than another page of the user's own record.
-  card: {
-    backgroundColor: colors.panel,
-    borderRadius: radius.lg,
-    borderWidth: 2,
-    borderColor: colors.frame,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
+  card: { ...cardStyle, gap: spacing.sm },
 
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flex: 1 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  category: { ...type.overline, color: colors.textOnDarkMuted, textTransform: 'uppercase' },
-  time: { ...type.caption, color: colors.gold },
-  timeFinished: { color: colors.textOnDarkMuted },
+  category: { ...type.label, color: colors.textMuted },
+  time: { ...type.caption, color: colors.textMuted },
+  timeFinished: { color: colors.textFaint },
 
   names: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm },
 
   scoreboard: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
   side: { flex: 1, gap: 2 },
   sideRight: { flex: 1, gap: 2, alignItems: 'flex-end' },
-  nameMine: { ...type.label, color: colors.textOnDark, flex: 1 },
-  nameTheirs: { ...type.label, color: colors.textOnDarkMuted, flex: 1, textAlign: 'right' },
-  score: { ...type.display, color: colors.textOnDark },
-  scoreTheirs: { color: colors.textOnDarkMuted },
+  nameMine: { ...type.label, color: colors.text, flex: 1 },
+  nameTheirs: { ...type.label, color: colors.textMuted, flex: 1, textAlign: 'right' },
+  score: { ...type.display, color: colors.text },
+  scoreTheirs: { color: colors.textMuted },
   /** The unit, stated once between the two numbers instead of after each. */
-  versus: { ...type.overline, color: colors.textOnDarkMuted, paddingBottom: spacing.sm },
+  versus: { ...type.caption, color: colors.textFaint, paddingBottom: spacing.sm },
 
-  pendingNote: { ...type.body, color: colors.textOnDarkMuted },
+  pendingNote: { ...type.body, color: colors.textMuted },
 
   track: {
     height: TRACK_HEIGHT,
     borderRadius: radius.pill,
-    // Darker than the panel, so the empty part of the track reads as cut into it.
-    backgroundColor: colors.stone,
+    backgroundColor: colors.surfaceRaised,
     overflow: 'hidden',
   },
   fill: {
     height: '100%',
     borderRadius: radius.pill,
-    justifyContent: 'flex-start',
     // A fill at 0% must not show a rounded stub of colour.
     minWidth: 0,
-  },
-  shine: {
-    height: 4,
-    marginTop: 3,
-    marginHorizontal: spacing.xs + 1,
-    borderRadius: radius.pill,
-    backgroundColor: colors.textOnAccent,
-    opacity: SHINE_OPACITY,
   },
   midMarker: {
     position: 'absolute',
@@ -324,7 +546,7 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: 2,
-    backgroundColor: colors.panel,
+    backgroundColor: colors.surface,
   },
 
   verdict: {
@@ -332,24 +554,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.pill,
-    // Pulls the pill up over the bar it is judging.
-    marginTop: -(TRACK_HEIGHT / 2 + spacing.xs),
-    borderWidth: 2,
-    borderColor: colors.frame,
   },
   verdictText: { ...type.label },
 
-  timeTrack: {
-    height: TIME_TRACK_HEIGHT,
-    borderRadius: radius.pill,
-    backgroundColor: colors.stone,
-    overflow: 'hidden',
-  },
-  timeFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.gold },
-
   actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
+  action: { marginTop: spacing.xs },
+
+  task: { ...type.heading, color: colors.text, flexShrink: 1 },
+  board: { gap: spacing.sm, marginTop: spacing.xs },
+  dayRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  dayRowName: { ...type.label, color: colors.text, width: 76 },
+  dots: { flex: 1, flexDirection: 'row', gap: spacing.xs },
+  dot: {
+    flex: 1,
+    maxWidth: 36,
+    height: 22,
+    borderRadius: radius.sm - 2,
+    backgroundColor: colors.surfaceRaised,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dotDone: { backgroundColor: colors.success },
+  dotDisputed: { backgroundColor: colors.dangerSoft },
+  // Today, still open: the one cell that earns an edge, as on the streak calendar.
+  dotToday: { borderWidth: 2, borderColor: colors.accent },
+  dotFuture: { opacity: 0.5 },
+  dayRowScore: { ...type.heading, color: colors.textMuted, width: 24, textAlign: 'right', fontVariant: ['tabular-nums'] },
+  dayRowScoreLeading: { color: colors.text },
+  verdictLine: { ...type.label, color: colors.textMuted, textAlign: 'center' },
+  doneRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs, marginTop: spacing.xs },
+  doneText: { ...type.label, color: colors.successDark },
+  disputeList: { gap: spacing.xs, marginTop: spacing.xs },
+  disputeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  disputeText: { ...type.caption, color: colors.textMuted, flex: 1 },
+  disputeLink: { ...type.label, color: colors.danger },
   actionButton: { flex: 1 },
 });

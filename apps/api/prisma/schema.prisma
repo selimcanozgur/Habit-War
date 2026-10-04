@@ -125,9 +125,11 @@ model User {
   pushTokens         PushToken[]
 
   // --- Game (Phase 1) ------------------------------------------------------
-  challengesIssued   Challenge[] @relation("ChallengeChallenger")
-  challengesReceived Challenge[] @relation("ChallengeOpponent")
-  challengesWon      Challenge[] @relation("ChallengeWinner")
+  challengesIssued   Challenge[]   @relation("ChallengeChallenger")
+  challengesReceived Challenge[]   @relation("ChallengeOpponent")
+  challengesWon      Challenge[]   @relation("ChallengeWinner")
+  duelCheckIns       DuelCheckIn[]
+  monsterHunts       MonsterHunt[]
 
   achievements UserAchievement[]
 
@@ -168,7 +170,14 @@ model Habit {
 
   targetMinutes Int
   frequency     Frequency @default(DAILY)
-  colorHex      String    @default("#6366F1") @db.VarChar(7)
+
+  /// TIMED: done with the timer. COUNT: logged in quick taps toward `targetCount`.
+  kind        HabitKind @default(TIMED)
+  /// COUNT only: the day's target, e.g. 50.
+  targetCount Int?
+  /// COUNT only: what is counted — "tekrar", "bardak", "sayfa".
+  unit        String?   @db.VarChar(20)
+  colorHex    String    @default("#6366F1") @db.VarChar(7)
 
   currentStreak Int @default(0)
   longestStreak Int @default(0)
@@ -205,14 +214,24 @@ model Session {
 
   startedAt   DateTime
   endedAt     DateTime?
-  /// Authoritative duration, computed server-side from startedAt/endedAt.
-  /// Never accepted from the client.
+  /// Authoritative duration, computed server-side from startedAt/endedAt minus
+  /// pauses. Never accepted from the client.
   durationSec Int?
+
+  /// Set while the session is paused; the running pause is not credited.
+  pausedAt   DateTime?
+  /// Seconds of pauses already resumed, subtracted from wall time.
+  pausedSec  Int       @default(0)
+  /// Pauses taken. Each counts as an interruption for the focus multiplier.
+  pauseCount Int       @default(0)
 
   status SessionStatus @default(ACTIVE)
 
   /// Times the session was interrupted; feeds the focus quality multiplier.
   interruptions Int @default(0)
+
+  /// A count habit's log: how many were done in this tap. Null for timed sessions.
+  count Int?
 
   xpAwarded Int @default(0)
   statXp    Int @default(0)
@@ -390,7 +409,7 @@ model AuthToken {
 
   expiresAt  DateTime
   consumedAt DateTime?
-  createdAt  DateTime      @default(now())
+  createdAt  DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -447,12 +466,29 @@ enum Verification {
   PEER_VERIFIED
 }
 
+enum HabitKind {
+  TIMED
+  COUNT
+}
+
+enum HuntStatus {
+  ACTIVE
+  /// Beaten: a trophy and the monster's title.
+  DEFEATED
+  /// Left for another monster. No penalty, no trophy.
+  FLED
+}
+
 enum XpReason {
   SESSION_AWARD
   SESSION_REVERSAL
   ANOMALY_CORRECTION
   MANUAL_ADJUSTMENT
   PRESTIGE_RESET
+  /// Task-duel day check-ins and settlement bonuses.
+  DUEL_REWARD
+  /// A disputed check-in's reward, taken back.
+  DUEL_REVERSAL
 }
 
 enum Frequency {
@@ -765,8 +801,12 @@ model Challenge {
   challengerId String
   opponentId   String
 
-  /// Null means "any category" — a total-XP duel.
+  /// Null means "any category" — a total-XP duel. Unused by task duels.
   category Category?
+
+  /// The daily task both sides commit to, e.g. "50 şınav". Set → a task duel, scored
+  /// in undisputed check-in days. Null → a legacy XP duel, scored from XpLedger.
+  task String?
 
   status ChallengeStatus @default(PENDING)
 
@@ -774,6 +814,8 @@ model Challenge {
   startsAt DateTime?
   endsAt   DateTime?
 
+  /// Score cache for each side. XP for a legacy duel, check-in days for a task duel —
+  /// the column names predate task duels.
   challengerXp Int @default(0)
   opponentXp   Int @default(0)
 
@@ -794,13 +836,82 @@ model Challenge {
   /// SetNull: the duel row and the opponent's history survive a purged winner.
   winner     User? @relation("ChallengeWinner", fields: [winnerId], references: [id], onDelete: SetNull)
 
-  posts Post[]
+  posts    Post[]
+  checkIns DuelCheckIn[]
 
   /// "My duels", newest first.
   @@index([challengerId, status, createdAt(sort: Desc)])
   @@index([opponentId, status, createdAt(sort: Desc)])
   /// Settlement job: find ACTIVE duels whose clock has expired.
   @@index([status, endsAt])
+}
+
+/// One hunt: a player against one monster from the bestiary, from the moment they
+/// chose it.
+///
+/// Only the hunt's identity is stored — which monster, its level and HP, and when it
+/// began and ended. Damage is never stored: it is derived from the sessions the player
+/// completed while the hunt was ACTIVE, so it cannot drift from the XP it comes from,
+/// and a session reversed later stops hitting automatically.
+model MonsterHunt {
+  id     String @id @default(cuid())
+  userId String
+
+  monsterKey String
+  /// Copied from the bestiary at the start, so a later rebalance cannot change a
+  /// fight already under way.
+  level      Int
+  maxHp      Int
+  /// The rung of this monster's ladder: one more than the times the player beat it
+  /// before, up to MONSTER_STAGES — the boss.
+  stage      Int    @default(1)
+
+  status HuntStatus @default(ACTIVE)
+
+  /// Sessions completed from here on hit this monster.
+  startedAt DateTime  @default(now())
+  /// DEFEATED: when the final blow's session ended. FLED: when the player switched.
+  endedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// The active hunt, and the trophy shelf: a player's hunts by status, newest first.
+  @@index([userId, status, endedAt(sort: Desc)])
+}
+
+/// One player's "I did today's task" on one day of a task duel.
+///
+/// Counts unless the opponent disputes it. Disputing rather than approving is the
+/// default on purpose: an opponent who never opens the app must not be able to stall
+/// the other side's score, so silence counts as acceptance.
+model DuelCheckIn {
+  id          String @id @default(cuid())
+  challengeId String
+  userId      String
+
+  /// Zero-based 24-hour slice of the duel, counted from acceptance.
+  dayIndex Int
+
+  /// Optional line from the player, shown to the opponent.
+  note String?
+
+  /// XP this check-in paid. Zero once the daily reward limit is reached. A dispute
+  /// reverses exactly this amount, so the ledger nets to what was really earned.
+  xpAwarded Int @default(0)
+
+  disputedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// One check-in per player per day.
+  @@unique([challengeId, userId, dayIndex])
+  /// The daily reward limit: a user's recent check-ins across all duels.
+  @@index([userId, createdAt(sort: Desc)])
 }
 
 // ---------------------------------------------------------------------------
@@ -1097,6 +1208,7 @@ enum NotificationType {
   CHALLENGE_INVITE
   CHALLENGE_ACCEPTED
   CHALLENGE_ENDED
+  CHALLENGE_DISPUTED
   ACHIEVEMENT_UNLOCKED
   LEVEL_UP
   STREAK_AT_RISK

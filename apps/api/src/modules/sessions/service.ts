@@ -14,7 +14,9 @@
 import type { Prisma, PrismaClient, Session } from '@prisma/client';
 import {
   ANOMALY_DAILY_TOTAL_MINUTES,
-  MAX_SESSION_MINUTES,
+  STALE_SESSION_MINUTES,
+  activeSessionSeconds,
+  countLogMinutes,
   calculateSessionXp,
   currentStreakAsOf,
   advanceStreak,
@@ -31,9 +33,11 @@ import {
   type XpResult,
 } from '@habitwar/domain';
 
+import { startOfLocalDay } from '../../lib/calendar.js';
 import { conflict, notFound, unprocessable } from '../../lib/errors.js';
 import { FeedService } from '../feed/service.js';
 import { evaluateAchievements } from '../game/achievements.js';
+import { HuntService, type HuntSessionResult } from '../game/hunts.js';
 import { resolveEventMultiplier } from '../game/seasons.js';
 
 /** Injectable clock — keeps the service deterministic under test. */
@@ -84,6 +88,8 @@ export interface CompleteSessionResult {
   readonly unlockedAchievements: readonly string[];
   /** True when this call replayed an already-completed session rather than scoring it. */
   readonly replayed: boolean;
+  /** What the session did to the hunted monster. Null on a replay, with no hunt, or on failure. */
+  readonly monster: HuntSessionResult | null;
 }
 
 export class SessionService {
@@ -91,6 +97,7 @@ export class SessionService {
   readonly #now: Clock;
   readonly #feed: Pick<FeedService, 'upsertDailyDigest'>;
   readonly #log: SessionServiceDeps['log'];
+  readonly #hunts: HuntService;
 
   constructor({ prisma, now, log, feed }: SessionServiceDeps) {
     this.#prisma = prisma;
@@ -98,6 +105,7 @@ export class SessionService {
     this.#log = log;
     // Shares the clock so a digest lands on the same local day the session did.
     this.#feed = feed ?? new FeedService({ prisma, now });
+    this.#hunts = new HuntService({ prisma, now });
   }
 
   /**
@@ -135,6 +143,79 @@ export class SessionService {
   }
 
   /**
+   * Logs a count habit — "+10 şınav" — and scores it as the session it is worth.
+   *
+   * The log becomes an ordinary session whose length is its credit in whole minutes
+   * (`countLogMinutes`, on the day's running total), and goes through `complete` like
+   * any other: same XP formula, streak, daily caps, feed digest and monster hit. Nothing
+   * about the economy is reimplemented, so a count habit cannot drift from a timed one.
+   * Past the day's target a log still records the count, credited zero minutes.
+   *
+   * Idempotent on `clientRequestId`, like start and complete.
+   */
+  async logCount(input: {
+    userId: string;
+    habitId: string;
+    count: number;
+    clientRequestId: string;
+  }): Promise<CompleteSessionResult> {
+    const { userId, habitId, count, clientRequestId } = input;
+
+    const replay = await this.#prisma.session.findUnique({
+      where: { clientRequestId },
+      include: { habit: true },
+    });
+    if (replay) {
+      if (replay.userId !== userId) throw conflict('clientRequestId already used');
+      if (replay.status === 'COMPLETED') return this.#describeCompleted(replay, true);
+    }
+
+    const habit = await this.#prisma.habit.findFirst({
+      where: { id: habitId, userId, isArchived: false },
+    });
+    if (!habit) throw notFound('Habit not found');
+    if (habit.kind !== 'COUNT' || habit.targetCount === null) {
+      throw unprocessable('Only a count habit can be logged by count');
+    }
+
+    const user = await this.#prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { timezone: true },
+    });
+    if (!user) throw notFound('User not found');
+
+    const now = this.#now();
+    const dayStart = startOfLocalDay(localDateKey(now, user.timezone), user.timezone);
+    const logged = await this.#prisma.session.aggregate({
+      where: { habitId, status: 'COMPLETED', endedAt: { gte: dayStart } },
+      _sum: { count: true },
+    });
+    const minutes = countLogMinutes(logged._sum.count ?? 0, count, habit.targetCount);
+
+    // Backdated by its credit, so `complete` measures exactly that many minutes.
+    const session =
+      replay ??
+      (await this.#prisma.session.create({
+        data: {
+          userId,
+          habitId,
+          clientRequestId,
+          startedAt: new Date(now.getTime() - minutes * 60_000),
+          status: 'ACTIVE',
+          count,
+        },
+      }));
+
+    return this.complete({
+      userId,
+      sessionId: session.id,
+      clientRequestId,
+      interruptions: 0,
+      verification: 'TIMER_ONLY',
+    });
+  }
+
+  /**
    * Completes a session and awards XP.
    *
    * Everything after scoring happens inside one transaction: ledger row, user
@@ -162,7 +243,12 @@ export class SessionService {
     }
 
     const now = this.#now();
-    const durationSec = Math.max(0, Math.floor((now.getTime() - session.startedAt.getTime()) / 1000));
+    // Paused time is not credited: wall time minus resumed pauses, minus the running
+    // pause if the session is completed while paused.
+    const durationSec = activeSessionSeconds(session, now);
+    // A pause is an interruption (domain: FOCUS_QUALITY_TIERS). Counted server-side,
+    // where it is recorded, rather than trusted to a client that may have restarted.
+    const totalInterruptions = interruptions + session.pauseCount;
 
     const user = await this.#prisma.user.findFirst({ where: { id: userId, deletedAt: null } });
     if (!user) throw notFound('User not found');
@@ -197,7 +283,7 @@ export class SessionService {
       stat,
       verification,
       streakDays,
-      interruptions,
+      interruptions: totalInterruptions,
       characterClass: user.classType,
       prestige: user.prestige,
       eventMultiplier,
@@ -228,7 +314,9 @@ export class SessionService {
           status: 'COMPLETED',
           endedAt: now,
           durationSec,
-          interruptions,
+          interruptions: totalInterruptions,
+          // A session completed while paused closes its pause here.
+          pausedAt: null,
           verification,
           proofUrl: proofUrl ?? null,
           xpAwarded: result.xp,
@@ -322,7 +410,22 @@ export class SessionService {
       suggestedClass: user.classType ?? suggestClass(deriveStatSheet(statXpAfter), progress.level),
       unlockedAchievements: unlocked,
       replayed: false,
+      monster: await this.#huntHit(userId, session.id),
     };
+  }
+
+  /**
+   * The monster hit for the reward screen. Outside the award transaction and isolated,
+   * like the other after-effects: the hunt is derived from the session, so a failure
+   * here loses a line on a screen, never the XP.
+   */
+  async #huntHit(userId: string, sessionId: string): Promise<HuntSessionResult | null> {
+    try {
+      return await this.#hunts.afterSession(userId, sessionId);
+    } catch (error) {
+      this.#log?.error({ err: error, sessionId }, 'monster hit could not be computed');
+      return null;
+    }
   }
 
   /**
@@ -369,6 +472,50 @@ export class SessionService {
     return unlocked;
   }
 
+  /**
+   * Pauses a running session. The pause is not credited, and counts as an
+   * interruption when the session completes.
+   *
+   * Idempotent: pausing a paused session returns it unchanged, so a double tap or a
+   * retry cannot count two pauses.
+   */
+  async pause(userId: string, sessionId: string): Promise<Session> {
+    const session = await this.#activeSession(userId, sessionId);
+    if (session.pausedAt !== null) return session;
+    const now = this.#now();
+    const updated = await this.#prisma.session.updateMany({
+      where: { id: session.id, status: 'ACTIVE', pausedAt: null },
+      data: { pausedAt: now, pauseCount: { increment: 1 } },
+    });
+    if (updated.count === 0) return this.#activeSession(userId, sessionId);
+    return this.#prisma.session.findUniqueOrThrow({ where: { id: session.id } });
+  }
+
+  /** Resumes a paused session; the pause's length joins `pausedSec`. Idempotent. */
+  async resume(userId: string, sessionId: string): Promise<Session> {
+    const session = await this.#activeSession(userId, sessionId);
+    if (session.pausedAt === null) return session;
+    const now = this.#now();
+    const pausedFor = Math.max(0, Math.floor((now.getTime() - session.pausedAt.getTime()) / 1000));
+    const updated = await this.#prisma.session.updateMany({
+      // Matching on the pausedAt we read is the guard: a concurrent resume that got
+      // there first leaves nothing to match, so a pause is never added twice.
+      where: { id: session.id, status: 'ACTIVE', pausedAt: session.pausedAt },
+      data: { pausedAt: null, pausedSec: { increment: pausedFor } },
+    });
+    if (updated.count === 0) return this.#activeSession(userId, sessionId);
+    return this.#prisma.session.findUniqueOrThrow({ where: { id: session.id } });
+  }
+
+  async #activeSession(userId: string, sessionId: string): Promise<Session> {
+    const session = await this.#prisma.session.findFirst({ where: { id: sessionId, userId } });
+    if (!session) throw notFound('Session not found');
+    if (session.status !== 'ACTIVE') {
+      throw unprocessable(`Session is ${session.status.toLowerCase()} and cannot be paused or resumed`);
+    }
+    return session;
+  }
+
   /** Abandons an active session. No XP, no streak change. */
   async abandon(userId: string, sessionId: string): Promise<Session> {
     const session = await this.#prisma.session.findFirst({ where: { id: sessionId, userId } });
@@ -399,7 +546,8 @@ export class SessionService {
    * a forgotten timer blocking every future session for that user forever.
    */
   async #closeStaleSessions(userId: string, now: Date): Promise<void> {
-    const cutoff = new Date(now.getTime() - MAX_SESSION_MINUTES * 60_000);
+    // Wall time, so the pause budget is included: see STALE_SESSION_MINUTES.
+    const cutoff = new Date(now.getTime() - STALE_SESSION_MINUTES * 60_000);
     await this.#prisma.session.updateMany({
       where: { userId, status: 'ACTIVE', startedAt: { lt: cutoff } },
       data: { status: 'ABANDONED', endedAt: now },
@@ -427,6 +575,8 @@ export class SessionService {
       suggestedClass: user.classType,
       unlockedAchievements: [],
       replayed,
+      // A replay already showed its hit when it first completed.
+      monster: null,
     };
   }
 }
