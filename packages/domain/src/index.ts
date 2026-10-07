@@ -10,6 +10,7 @@ export * from './types.js';
 export * from './balance.js';
 export * from './counts.js';
 export * from './monsters.js';
+export * from './story.js';
 export * from './duels.js';
 export * from './sessions.js';
 export * from './leveling.js';

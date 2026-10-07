@@ -46,6 +46,15 @@ model User {
   /// IANA timezone. Owns the day boundary for streaks, daily caps and league weeks.
   timezone String @default("Europe/Istanbul")
 
+  /// When this player's story began. Only sessions completed from here on advance it,
+  /// so work done before the story existed does not fling a player into chapter ten.
+  /// Set on first contact with the story; null until then.
+  storyStartedAt DateTime?
+
+  /// When the player finished the first-run flow (meeting Işıl, naming their hero,
+  /// choosing habits). Null sends the app to that flow on the next launch.
+  onboardedAt DateTime?
+
   /// Birth date, for the age gate. Stores of both platforms require an age rating,
   /// and KVKK/GDPR treat minors' data differently; the spec had no field for this.
   birthDate DateTime? @db.Date
@@ -129,7 +138,6 @@ model User {
   challengesReceived Challenge[]   @relation("ChallengeOpponent")
   challengesWon      Challenge[]   @relation("ChallengeWinner")
   duelCheckIns       DuelCheckIn[]
-  monsterHunts       MonsterHunt[]
 
   achievements UserAchievement[]
 
@@ -469,14 +477,6 @@ enum Verification {
 enum HabitKind {
   TIMED
   COUNT
-}
-
-enum HuntStatus {
-  ACTIVE
-  /// Beaten: a trophy and the monster's title.
-  DEFEATED
-  /// Left for another monster. No penalty, no trophy.
-  FLED
 }
 
 enum XpReason {
@@ -844,41 +844,6 @@ model Challenge {
   @@index([opponentId, status, createdAt(sort: Desc)])
   /// Settlement job: find ACTIVE duels whose clock has expired.
   @@index([status, endsAt])
-}
-
-/// One hunt: a player against one monster from the bestiary, from the moment they
-/// chose it.
-///
-/// Only the hunt's identity is stored — which monster, its level and HP, and when it
-/// began and ended. Damage is never stored: it is derived from the sessions the player
-/// completed while the hunt was ACTIVE, so it cannot drift from the XP it comes from,
-/// and a session reversed later stops hitting automatically.
-model MonsterHunt {
-  id     String @id @default(cuid())
-  userId String
-
-  monsterKey String
-  /// Copied from the bestiary at the start, so a later rebalance cannot change a
-  /// fight already under way.
-  level      Int
-  maxHp      Int
-  /// The rung of this monster's ladder: one more than the times the player beat it
-  /// before, up to MONSTER_STAGES — the boss.
-  stage      Int    @default(1)
-
-  status HuntStatus @default(ACTIVE)
-
-  /// Sessions completed from here on hit this monster.
-  startedAt DateTime  @default(now())
-  /// DEFEATED: when the final blow's session ended. FLED: when the player switched.
-  endedAt   DateTime?
-
-  createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  /// The active hunt, and the trophy shelf: a player's hunts by status, newest first.
-  @@index([userId, status, endedAt(sort: Desc)])
 }
 
 /// One player's "I did today's task" on one day of a task duel.

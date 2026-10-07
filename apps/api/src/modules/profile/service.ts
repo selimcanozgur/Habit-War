@@ -45,6 +45,9 @@ import { addDays, startOfLocalDay, weekWindow } from '../../lib/calendar.js';
 import { definedOnly } from '../../lib/objects.js';
 import type { UpdateProfileBody } from './schemas.js';
 
+/** How far back the day streak looks. A year of daily sessions is already a legend. */
+const DAY_STREAK_LOOKBACK_DAYS = 366;
+
 /** Injectable clock — keeps day-boundary and week-window logic deterministic under test. */
 export type Clock = () => Date;
 
@@ -81,6 +84,14 @@ export interface OwnProfile {
   readonly bio: string | null;
   readonly timezone: string;
   readonly createdAt: Date;
+  /** Null until the first-run flow is finished; the app routes there while it is. */
+  readonly onboardedAt: Date | null;
+  /**
+   * Days in a row with at least one completed session, ending today — or yesterday,
+   * while today is still open. The account's streak, not any one habit's: a player who
+   * fights with a different habit each day is still on a streak.
+   */
+  readonly dayStreak: number;
 
   readonly progression: {
     readonly level: number;
@@ -203,6 +214,50 @@ export class ProfileService {
   }
 
   // -------------------------------------------------------------------------
+  // POST /v1/users/me/onboarding
+  // -------------------------------------------------------------------------
+
+  /**
+   * Marks the first-run flow done. Idempotent: the first completion's instant stands,
+   * so a retried request or a second device cannot move it.
+   */
+  async completeOnboarding(userId: string): Promise<{ onboardedAt: Date }> {
+    await this.#requireLiveUser(userId);
+    await this.#prisma.user.updateMany({
+      where: { id: userId, onboardedAt: null },
+      data: { onboardedAt: this.#now() },
+    });
+    const user = await this.#prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { onboardedAt: true },
+    });
+    return { onboardedAt: user.onboardedAt as Date };
+  }
+
+  /**
+   * The account's day streak (see `OwnProfile.dayStreak`). Reads one session timestamp
+   * per completed session in the lookback window; a streak longer than the window is
+   * reported as the window.
+   */
+  async #dayStreak(userId: string, timeZone: string, today: string): Promise<number> {
+    const since = new Date(this.#now().getTime() - (DAY_STREAK_LOOKBACK_DAYS + 1) * 86_400_000);
+    const sessions = await this.#prisma.session.findMany({
+      where: { userId, status: 'COMPLETED', isFlagged: false, endedAt: { gte: since } },
+      select: { endedAt: true },
+    });
+    const days = new Set(
+      sessions.flatMap((session) => (session.endedAt ? [localDateKey(session.endedAt, timeZone)] : [])),
+    );
+    let day = days.has(today) ? today : addDays(today, -1);
+    let streak = 0;
+    while (days.has(day) && streak < DAY_STREAK_LOOKBACK_DAYS) {
+      streak += 1;
+      day = addDays(day, -1);
+    }
+    return streak;
+  }
+
+  // -------------------------------------------------------------------------
   // GET /v1/users/me
   // -------------------------------------------------------------------------
 
@@ -243,6 +298,7 @@ export class ProfileService {
     const statXp = statXpSheet(user);
     const stats = deriveStatSheet(statXp);
     const progress = levelProgress(user.cycleXp);
+    const dayStreak = await this.#dayStreak(userId, user.timezone, today);
 
     return {
       id: user.id,
@@ -253,6 +309,8 @@ export class ProfileService {
       bio: user.bio,
       timezone: user.timezone,
       createdAt: user.createdAt,
+      onboardedAt: user.onboardedAt,
+      dayStreak,
 
       progression: {
         level: progress.level,

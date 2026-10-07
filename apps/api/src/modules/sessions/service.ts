@@ -37,7 +37,7 @@ import { startOfLocalDay } from '../../lib/calendar.js';
 import { conflict, notFound, unprocessable } from '../../lib/errors.js';
 import { FeedService } from '../feed/service.js';
 import { evaluateAchievements } from '../game/achievements.js';
-import { HuntService, type HuntSessionResult } from '../game/hunts.js';
+import { StoryService, type StorySessionResult } from '../game/story.js';
 import { resolveEventMultiplier } from '../game/seasons.js';
 
 /** Injectable clock — keeps the service deterministic under test. */
@@ -88,8 +88,8 @@ export interface CompleteSessionResult {
   readonly unlockedAchievements: readonly string[];
   /** True when this call replayed an already-completed session rather than scoring it. */
   readonly replayed: boolean;
-  /** What the session did to the hunted monster. Null on a replay, with no hunt, or on failure. */
-  readonly monster: HuntSessionResult | null;
+  /** What the session did to the story. Null on a replay or if it could not be read. */
+  readonly story: StorySessionResult | null;
 }
 
 export class SessionService {
@@ -97,7 +97,7 @@ export class SessionService {
   readonly #now: Clock;
   readonly #feed: Pick<FeedService, 'upsertDailyDigest'>;
   readonly #log: SessionServiceDeps['log'];
-  readonly #hunts: HuntService;
+  readonly #story: StoryService;
 
   constructor({ prisma, now, log, feed }: SessionServiceDeps) {
     this.#prisma = prisma;
@@ -105,7 +105,7 @@ export class SessionService {
     this.#log = log;
     // Shares the clock so a digest lands on the same local day the session did.
     this.#feed = feed ?? new FeedService({ prisma, now });
-    this.#hunts = new HuntService({ prisma, now });
+    this.#story = new StoryService({ prisma, now });
   }
 
   /**
@@ -410,20 +410,20 @@ export class SessionService {
       suggestedClass: user.classType ?? suggestClass(deriveStatSheet(statXpAfter), progress.level),
       unlockedAchievements: unlocked,
       replayed: false,
-      monster: await this.#huntHit(userId, session.id),
+      story: await this.#storyHit(userId, session.id),
     };
   }
 
   /**
-   * The monster hit for the reward screen. Outside the award transaction and isolated,
-   * like the other after-effects: the hunt is derived from the session, so a failure
+   * The story hit for the reward screen. Outside the award transaction and isolated,
+   * like the other after-effects: the story is derived from the session, so a failure
    * here loses a line on a screen, never the XP.
    */
-  async #huntHit(userId: string, sessionId: string): Promise<HuntSessionResult | null> {
+  async #storyHit(userId: string, sessionId: string): Promise<StorySessionResult | null> {
     try {
-      return await this.#hunts.afterSession(userId, sessionId);
+      return await this.#story.afterSession(userId, sessionId);
     } catch (error) {
-      this.#log?.error({ err: error, sessionId }, 'monster hit could not be computed');
+      this.#log?.error({ err: error, sessionId }, 'story hit could not be computed');
       return null;
     }
   }
@@ -576,7 +576,7 @@ export class SessionService {
       unlockedAchievements: [],
       replayed,
       // A replay already showed its hit when it first completed.
-      monster: null,
+      story: null,
     };
   }
 }

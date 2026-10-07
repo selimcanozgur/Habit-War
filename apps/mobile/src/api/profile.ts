@@ -53,6 +53,10 @@ export interface ProfileProgress {
  * betting on one: `readProfile` below flattens whichever arrived.
  */
 export interface ServerOwnProfile extends Partial<ProfileUser> {
+  /** ISO timestamp; null until the first-run flow is finished. */
+  readonly onboardedAt?: string | null;
+  /** Days in a row with a completed session, ending today or yesterday. */
+  readonly dayStreak?: number;
   readonly progression?: Partial<ProfileProgress> & {
     readonly cycleXp?: number;
     readonly prestige?: number;
@@ -83,6 +87,8 @@ export interface NormalisedProfile {
   readonly progress: ProfileProgress;
   readonly stats: StatSheet;
   readonly statXp: StatSheet;
+  /** The account's day streak: days in a row with a completed session. */
+  readonly dayStreak: number;
   /** Local dates (YYYY-MM-DD) a habit was last completed — the streak grid's fallback. */
   readonly lastCompletedDates: readonly string[];
 }
@@ -123,6 +129,7 @@ export function readProfile(response: ProfileResponse | undefined): NormalisedPr
     progress: normaliseProgress(response?.progress ?? progression, normalisedUser.level),
     stats: normaliseStatSheet(response?.stats ?? user.stats),
     statXp: normaliseStatSheet(response?.statXp ?? user.statXp),
+    dayStreak: Math.max(0, finiteOr(user.dayStreak, 0)),
     lastCompletedDates: habitDates,
   };
 }
@@ -305,6 +312,19 @@ export function listAchievements(): Promise<AchievementsResponse> {
 
 export function updateProfile(input: UpdateProfileInput): Promise<{ user: ProfileUser }> {
   return apiRequest('/v1/users/me', { method: 'PATCH', body: input });
+}
+
+/** Marks the first-run flow finished; the app stops routing to it. */
+export function completeOnboarding(): Promise<{ onboardedAt: string }> {
+  return apiRequest('/v1/users/me/onboarding', { method: 'POST', body: {} });
+}
+
+/**
+ * Whether the first-run flow still has to be shown. Only an explicit null says so: a
+ * profile that failed to load, or a server that predates the field, lets the app open.
+ */
+export function needsOnboarding(response: ProfileResponse | undefined): boolean {
+  return response?.user.onboardedAt === null;
 }
 
 // ---------------------------------------------------------------------------

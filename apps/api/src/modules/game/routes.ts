@@ -10,14 +10,13 @@ import type { FastifyInstance } from 'fastify';
 
 import { ChallengeService } from './challenges.js';
 import { listAchievements } from './achievements.js';
-import { HuntService } from './hunts.js';
+import { StoryService } from './story.js';
 import { SeasonService } from './seasons.js';
 import {
   challengeIdParams,
   checkInBody,
   checkInParams,
   createChallengeBody,
-  monsterKeyParams,
   listChallengesQuery,
 } from './schemas.js';
 
@@ -25,7 +24,7 @@ export async function gameRoutes(app: FastifyInstance): Promise<void> {
   const now = (): Date => new Date();
   const challenges = new ChallengeService({ prisma: app.prisma, now });
   const seasons = new SeasonService({ prisma: app.prisma, now });
-  const hunts = new HuntService({ prisma: app.prisma, now });
+  const story = new StoryService({ prisma: app.prisma, now });
 
   app.addHook('preHandler', app.requireUser);
 
@@ -78,15 +77,9 @@ export async function gameRoutes(app: FastifyInstance): Promise<void> {
     return listAchievements(app.prisma, request.userId);
   });
 
-  /** The bestiary as this player sees it, with their current hunt and trophies. */
-  app.get('/monsters', async (request) => {
-    return hunts.bestiary(request.userId);
-  });
-
-  /** Starts hunting a monster; any hunt under way is left behind. */
-  app.post('/monsters/:key/hunt', async (request) => {
-    const { key } = monsterKeyParams.parse(request.params);
-    return { hunt: await hunts.start(request.userId, key) };
+  /** The player's place in the story: the fight under way and the chapters won. */
+  app.get('/story', async (request) => {
+    return { story: await story.state(request.userId) };
   });
 
   app.get('/seasons/current', async () => {

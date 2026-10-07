@@ -20,4 +20,9 @@ export const FEATURES = {
    * API keeps serving them, so turning this back on needs no server change.
    */
   duels: flag(process.env.EXPO_PUBLIC_FEATURE_DUELS, false),
+  /**
+   * The social feed tab. Off while v1 is single-player (docs/game-design.md §0); the
+   * friends tab stays for adding and removing friends.
+   */
+  feed: flag(process.env.EXPO_PUBLIC_FEATURE_FEED, false),
 } as const;

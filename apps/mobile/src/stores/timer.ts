@@ -51,6 +51,14 @@ export interface TimerState {
   stop: () => void;
   tick: () => void;
   recordInterruption: () => void;
+  /**
+   * The VS intro to play before the battle screen. Set by whoever starts a session
+   * from a tap — not by `start`, which also adopts a session the server reports, and
+   * a reopened app must not replay the intro of a fight already under way.
+   */
+  readonly introPending: boolean;
+  requestIntro: () => void;
+  clearIntro: () => void;
 }
 
 export const useTimerStore = create<TimerState>((set, get) => ({
@@ -61,6 +69,7 @@ export const useTimerStore = create<TimerState>((set, get) => ({
   pausedAtMs: null,
   interruptions: 0,
   elapsedSec: 0,
+  introPending: false,
 
   start: ({ sessionId, habitId, startedAt, pausedSec = 0, pausedAt = null }) => {
     const startedAtMs = Date.parse(startedAt);
@@ -95,6 +104,8 @@ export const useTimerStore = create<TimerState>((set, get) => ({
   },
 
   recordInterruption: () => set((state) => ({ interruptions: state.interruptions + 1 })),
+  requestIntro: () => set({ introPending: true }),
+  clearIntro: () => set({ introPending: false }),
 }));
 
 /**

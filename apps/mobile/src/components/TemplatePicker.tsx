@@ -11,7 +11,7 @@
 import {
   CATEGORY_DEFAULT_STAT,
   MONSTERS,
-  MONSTER_WEAKNESS_MULTIPLIER,
+  WEAKNESS_DAMAGE_MULTIPLIER,
   type Stat,
 } from '@habitwar/domain';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -20,9 +20,9 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ApiError } from '../api/client';
-import { getBestiary } from '../api/monsters';
+import { getStory } from '../api/story';
 import { createHabit, listHabits } from '../api/sessions';
-import { HABIT_TEMPLATES, type HabitTemplate } from '../habitTemplates';
+import { HABIT_TEMPLATES, templateHabitInput, type HabitTemplate } from '../habitTemplates';
 import { categoryColors, colors, radius, spacing, statColors, statLabels, type } from '../theme';
 import { ChipButton } from './Button';
 import { CATEGORY_ICONS, Icon } from './Icon';
@@ -57,30 +57,17 @@ export interface TemplatePickerProps {
 export function TemplatePicker({ focusStat = null, onCustom }: TemplatePickerProps): React.JSX.Element {
   const queryClient = useQueryClient();
   const habitsQuery = useQuery({ queryKey: ['habits'], queryFn: listHabits });
-  const bestiaryQuery = useQuery({ queryKey: ['monsters'], queryFn: getBestiary });
+  const storyQuery = useQuery({ queryKey: ['story'], queryFn: getStory });
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
 
-  const hunt = bestiaryQuery.data?.active ?? null;
-  const lead = focusStat ?? hunt?.monster.weakness ?? null;
+  const hunt = storyQuery.data?.story.current ?? null;
+  const lead = focusStat ?? hunt?.weakness ?? null;
   const owned = new Set((habitsQuery.data?.habits ?? []).map((habit) => habit.name.toLocaleLowerCase('tr-TR')));
   const order = lead ? [lead, ...STAT_ORDER.filter((stat) => stat !== lead)] : STAT_ORDER;
 
   const mutation = useMutation({
-    mutationFn: (template: HabitTemplate) =>
-      createHabit(
-        template.kind === 'COUNT'
-          ? {
-              name: template.name,
-              category: template.category,
-              // Fixed server-side for count habits; the field is required.
-              targetMinutes: 15,
-              kind: 'COUNT',
-              targetCount: template.targetCount ?? 1,
-              unit: template.unit ?? 'kez',
-            }
-          : { name: template.name, category: template.category, targetMinutes: template.targetMinutes ?? 30 },
-      ),
+    mutationFn: (template: HabitTemplate) => createHabit(templateHabitInput(template)),
     onMutate: (template) => {
       setAdding(template.key);
       setError(null);
@@ -108,7 +95,7 @@ export function TemplatePicker({ focusStat = null, onCustom }: TemplatePickerPro
               <Text style={[styles.groupHint, leading && styles.groupHintLead]} numberOfLines={1}>
                 {leading && hunt
                   // No case suffix on the name: Turkish vowel harmony would need one per monster.
-                  ? `×${MONSTER_WEAKNESS_MULTIPLIER} vurur · hedefin ${hunt.name}`
+                  ? `×${WEAKNESS_DAMAGE_MULTIPLIER} vurur · hedefin ${hunt.name}`
                   : `Güçlü: ${monstersWeakTo(stat)}`}
               </Text>
             </View>

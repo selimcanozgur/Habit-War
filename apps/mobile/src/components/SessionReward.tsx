@@ -45,6 +45,12 @@ const OVERLAY_TINT = 'rgba(49, 47, 39, 0.78)';
 const CHIP_ICON_SIZE = 16;
 const NOTICE_ICON_SIZE = 18;
 
+/**
+ * Up to this level the card says what its two numbers are for. Past it the player
+ * knows, and the line would only be in the way.
+ */
+const EXPLAIN_UNTIL_LEVEL = 2;
+
 export interface SessionRewardProps {
   readonly result: CompleteSessionResponse;
   readonly habitName: string;
@@ -103,24 +109,38 @@ export function SessionReward({
         </View>
 
         {/*
-          The same session, seen from the game: what it did to the hunted monster. The
-          XP above is what the user earned; this is what that XP was worth in the fight.
+          The same session, seen from the story: the damage it dealt (its seconds) and
+          every fight it won — a boss's title included. XP above is the character's;
+          this is the fight's.
         */}
-        {result.monster && (
-          <View style={[styles.monster, result.monster.defeated && styles.monsterDefeated]}>
-            <Icon
-              name={result.monster.defeated ? 'trophy' : 'swords'}
-              size={NOTICE_ICON_SIZE}
-              color={result.monster.defeated ? colors.goldDark : colors.danger}
-            />
-            <Text style={styles.monsterText}>
-              {result.monster.defeated
-                ? result.monster.isBoss
-                  ? `${result.monster.name} yenildi! Unvanın: ${result.monster.title}`
-                  : `${result.monster.name} (Sv ${result.monster.stage}) yenildi! Sıradaki seviye seni bekliyor.`
-                : `${result.monster.name}: −${result.monster.damage} can${
-                    result.monster.weakness ? ' · zayıf noktası!' : ''
-                  } · kalan ${result.monster.hp}`}
+        {result.story && (
+          <View style={styles.story}>
+            {result.story.won.map((win) => (
+              <View key={`${win.chapter}-${win.fight}`} style={[styles.monster, styles.monsterDefeated]}>
+                <Icon name="trophy" size={NOTICE_ICON_SIZE} color={colors.goldDark} />
+                <Text style={styles.monsterText}>
+                  {win.isBoss
+                    ? `${win.name} yenildi! Bölüm ${win.chapter} tamamlandı · Unvanın: ${win.title}`
+                    : `${win.name} yenildi!`}
+                </Text>
+              </View>
+            ))}
+            <View style={styles.monster}>
+              <Icon name="swords" size={NOTICE_ICON_SIZE} color={colors.danger} />
+              <Text style={styles.monsterText}>
+                {result.story.current
+                  ? `${result.story.damage} hasar · ${result.story.current.name}: ${result.story.current.hp} can kaldı`
+                  : `${result.story.damage} hasar · Hikaye tamamlandı!`}
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {result.story && result.level <= EXPLAIN_UNTIL_LEVEL && (
+          <View style={styles.explain}>
+            <Icon name="flame-filled" size={14} color={colors.fire} />
+            <Text style={styles.explainText}>
+              XP karakterini büyütür, hasar hikayeyi ilerletir. İkisi de her seansta birlikte gelir.
             </Text>
           </View>
         )}
@@ -207,7 +227,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.dangerSoft,
   },
   monsterDefeated: { backgroundColor: colors.goldSoft },
+  story: { gap: spacing.xs },
   monsterText: { ...type.label, color: colors.text, flex: 1 },
+
+  explain: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.xs },
+  explainText: { ...type.caption, color: colors.textMuted, flex: 1 },
 
   barWrapper: { marginTop: spacing.xs },
   levelBadge: {

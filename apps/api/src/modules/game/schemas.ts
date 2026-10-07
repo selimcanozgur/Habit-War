@@ -56,11 +56,6 @@ export const createChallengeBody = z.object({
 
 export const challengeIdParams = z.object({ id: z.string().cuid() });
 
-/** A bestiary key: lowercase words joined by hyphens. */
-export const monsterKeyParams = z.object({
-  key: z.string().regex(/^[a-z]+(?:-[a-z]+)*$/).max(40),
-});
-
 /** A day's check-in: an optional line for the opponent to read. */
 export const checkInBody = z
   .object({ note: z.string().trim().max(140).optional() })

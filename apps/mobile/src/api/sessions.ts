@@ -8,7 +8,7 @@
 
 import type { Category, Stat, Verification } from '@habitwar/domain';
 
-import type { HuntSessionResult } from './monsters';
+import type { StorySessionResult } from './story';
 import { apiRequest } from './client';
 
 export interface Habit {
@@ -58,8 +58,8 @@ export interface CompleteSessionResponse {
   readonly streak: number;
   readonly suggestedClass: string | null;
   readonly replayed: boolean;
-  /** What the session did to the hunted monster; null on a replay or with no hunt. */
-  readonly monster?: HuntSessionResult | null;
+  /** What the session did to the story; null on a replay. */
+  readonly story?: StorySessionResult | null;
 }
 
 export function listHabits(): Promise<{ habits: Habit[] }> {

@@ -323,38 +323,27 @@ export const DUEL_TASK_MIN_LENGTH = 2;
 export const DUEL_TASK_MAX_LENGTH = 60;
 
 // ---------------------------------------------------------------------------
-// Monster hunts
+// Story battles (docs/game-design.md §2–3)
 // ---------------------------------------------------------------------------
 //
-// Monsters are where XP is SPENT, not where it is made: a session's damage is derived
-// from the XP it already earned, and beating a monster pays a title and a trophy,
-// never XP. However good the game gets, the only way to play it is to do the real
-// thing — and it can never inflate levels or the leaderboard.
+// Two economies, kept apart on purpose. XP grows the character and keeps its formula.
+// DAMAGE is the story: it comes from worked time alone — one point per active second,
+// more against the monster's weakness — so the number on the battle screen and the one
+// the server computes are the same number, and no XP multiplier blurs the fight.
+// Fights pay no XP; the session already did.
 
-/**
- * A monster's base HP is the XP its unlock level takes to clear (`xpForLevel`), so a
- * monster at the player's own level is about one level of honest work to beat at full
- * strength. This floor keeps the very first fights from dying to nothing.
- */
-export const MONSTER_MIN_HP = 40;
+/** Damage per active second against a monster's weak stat (1 elsewhere). */
+export const WEAKNESS_DAMAGE_MULTIPLIER = 1.5;
 
-/** Damage multiplier for a session training the monster's weak stat. */
-export const MONSTER_WEAKNESS_MULTIPLIER = 1.5;
+/** Fights in a chapter: three against the monster, then its boss. */
+export const FIGHTS_PER_CHAPTER = 4;
 
-/**
- * Levels in each monster's ladder. Beating a monster raises it a level; the last level
- * is its boss, and beating the boss is what pays the trophy and the title.
- */
-export const MONSTER_STAGES = 15;
+/** Each fight's length as a multiple of its chapter's base minutes; the last is the boss. */
+export const FIGHT_TIME_MULTIPLIERS: readonly number[] = [1, 1.5, 2, 4];
 
-/**
- * A monster's HP across its ladder, as a share of its base HP (`xpForLevel` of the
- * level that unlocks it): level 1 at 40%, rising evenly to 100% at the level before
- * the boss, and the boss itself at twice the base — the one fight that should take a
- * real stretch of work.
- */
-export const MONSTER_FIRST_STAGE_SHARE = 0.4;
-export const MONSTER_BOSS_HP_MULTIPLIER = 2;
+/** Base fight length of the first and the last chapter, in minutes; linear between. */
+export const STORY_FIRST_BASE_MINUTES = 5;
+export const STORY_LAST_BASE_MINUTES = 45;
 
 // ---------------------------------------------------------------------------
 // Count habits

@@ -15,14 +15,18 @@
  *     quality multiplier. It is reported honestly rather than hidden, so the user can
  *     see why a distracted session scored lower.
  *
- * Visually: an illustrated hero heads the screen, and below it the day's habits sit
- * as rows in one grouped card rather than a stack of separate cards. The section
- * header above it carries the "3 / 5" progress for the day, which is the one number
- * this screen exists to move, and a row can state its own completion without
- * becoming a card of its own.
+ * Visually, top to bottom, the screen answers "what do I do now?":
+ *
+ *   - the character: name, title, level, day streak — who is doing the work;
+ *   - the mission card: the fight under way, Işıl's line for the moment, and one
+ *     button with the best habit to fight with (MissionCard);
+ *   - today's habits as rows in one grouped card, with the "3 / 5" the day is
+ *     measured by. A timed row starts a fight; a count row logs a quick blow.
+ *
+ * While a session runs the whole screen is the battle (BattleView).
  */
 
-import { projectedSessionDamage, resolveStat, type Category } from '@habitwar/domain';
+import type { Category } from '@habitwar/domain';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -37,18 +41,10 @@ import {
   View,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import Animated, {
-  FadeInDown,
-  FadeOutDown,
-  FadeOutUp,
-  useAnimatedStyle,
-  useSharedValue,
-  withSequence,
-  withTiming,
-} from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { getBestiary, type Hunt } from '../../src/api/monsters';
+import { getStory } from '../../src/api/story';
 import { ApiError } from '../../src/api/client';
 import {
   abandonSession,
@@ -63,23 +59,14 @@ import {
   type CompleteSessionResponse,
   type Habit,
 } from '../../src/api/sessions';
-import {
-  describeClass,
-  getProfile,
-  getProfileStats,
-  readProfile,
-  readStats,
-} from '../../src/api/profile';
-import {
-  checkInChallenge,
-  getCurrentSeason,
-  listChallenges,
-  normaliseChallenges,
-  normaliseSeason,
-} from '../../src/api/social';
+import { describeClass, getProfile, readProfile } from '../../src/api/profile';
+import { checkInChallenge, listChallenges, normaliseChallenges } from '../../src/api/social';
 import { Button, cardStyle, ChipButton } from '../../src/components/Button';
 import { CharacterHeader } from '../../src/components/CharacterHeader';
-import { monsterIcon } from '../../src/components/monsterArt';
+import { BattleView } from '../../src/components/BattleView';
+import { MissionCard } from '../../src/components/MissionCard';
+import { VersusIntro } from '../../src/components/VersusIntro';
+import { localDateKey } from '../../src/story/fighters';
 import { Group } from '../../src/components/Group';
 import { NewHabitSheet } from '../../src/components/NewHabitSheet';
 import { stepFor } from '../../src/countUnits';
@@ -87,7 +74,7 @@ import { FEATURES } from '../../src/features';
 import { CATEGORY_ICONS, Icon, type IconName } from '../../src/components/Icon';
 import { ScreenHero } from '../../src/components/ScreenHero';
 import { SessionReward } from '../../src/components/SessionReward';
-import { formatElapsed, TICK_MS, useTimerStore } from '../../src/stores/timer';
+import { TICK_MS, useTimerStore } from '../../src/stores/timer';
 import { categoryLabels, colors, hairline, radius, spacing, statColors, type } from '../../src/theme';
 
 /** One size for a list row, one for the running session's header. */
@@ -117,13 +104,6 @@ function habitAccent(habit: Habit): string {
 /** The glyph for a habit's category, with a neutral fallback for unknown enums. */
 function habitIcon(category: Category): IconName {
   return CATEGORY_ICONS[category] ?? 'play';
-}
-
-/** `YYYY-MM-DD` in the device's own timezone, which is what the API's dates mean. */
-function localDateKey(date: Date): string {
-  const month = `${date.getMonth() + 1}`.padStart(2, '0');
-  const day = `${date.getDate()}`.padStart(2, '0');
-  return `${date.getFullYear()}-${month}-${day}`;
 }
 
 /**
@@ -165,7 +145,6 @@ export default function TimerScreen(): React.JSX.Element {
 
   const habitsQuery = useQuery({ queryKey: ['habits'], queryFn: listHabits });
   const activeQuery = useQuery({ queryKey: ['activeSession'], queryFn: getActiveSession });
-  const seasonQuery = useQuery({ queryKey: ['currentSeason'], queryFn: getCurrentSeason });
   /** Running duels, so a habit whose sessions score in one can say so on its row. */
   // Not fetched at all while duels are switched off: no duel tag, no duel section.
   const challengesQuery = useQuery({
@@ -178,26 +157,15 @@ export default function TimerScreen(): React.JSX.Element {
    * costs nothing and completing a session refreshes both from one invalidation.
    */
   const profileQuery = useQuery({ queryKey: ['profile'], queryFn: getProfile });
-  /**
-   * The account streak, which lives on the stats endpoint rather than the profile.
-   * A habit's own `streak` is per-habit and would report the best one, not the
-   * account's — a user with one 14-day habit and four cold ones is not on day 14.
-   */
-  const statsQuery = useQuery({
-    queryKey: ['profileStats', 'week' as const],
-    queryFn: () => getProfileStats('week'),
-  });
 
   const habits = habitsQuery.data?.habits ?? [];
   const activeSession = activeQuery.data?.session ?? null;
   const runningHabit = habits.find((habit) => habit.id === timer.habitId) ?? null;
-  const season = useMemo(() => normaliseSeason(seasonQuery.data?.season), [seasonQuery.data]);
   const profile = useMemo(() => readProfile(profileQuery.data), [profileQuery.data]);
   /** The title the player wears: their latest monster beaten. Shares the battle tab's cache. */
-  const bestiaryQuery = useQuery({ queryKey: ['monsters'], queryFn: getBestiary });
-  const bossTitle = bestiaryQuery.data?.trophies[0]?.title ?? null;
-  /** The monster a running session is hitting, if the player is hunting one. */
-  const activeHunt = bestiaryQuery.data?.active ?? null;
+  const storyQuery = useQuery({ queryKey: ['story'], queryFn: getStory });
+  const story = storyQuery.data?.story ?? null;
+  const bossTitle = story?.completed[story.completed.length - 1]?.title ?? null;
   const activeDuels = useMemo(() => {
     const payload = challengesQuery.data;
     const all = normaliseChallenges([...(payload?.active ?? []), ...(payload?.challenges ?? [])]);
@@ -225,13 +193,6 @@ export default function TimerScreen(): React.JSX.Element {
     onError: (err: unknown) => setError(describeError(err)),
   });
 
-  const statsSummary = useMemo(() => readStats(statsQuery.data), [statsQuery.data]);
-  /** Stat points are displayed as one total, the way the comp's third badge has it. */
-  const statTotal = useMemo(() => {
-    const sheet = profile?.stats;
-    if (!sheet) return 0;
-    return Object.values(sheet).reduce((sum, value) => sum + value, 0);
-  }, [profile?.stats]);
 
   // Adopt whatever session the server says is running, pause state included. This is
   // what makes the timer survive a reinstall or a second device — and a session paused
@@ -282,6 +243,8 @@ export default function TimerScreen(): React.JSX.Element {
         pausedSec: session.pausedSec,
         pausedAt: session.pausedAt,
       });
+      // A session started from a tap opens with the versus intro.
+      useTimerStore.getState().requestIntro();
       setError(null);
       void queryClient.invalidateQueries({ queryKey: ['activeSession'] });
     },
@@ -306,8 +269,8 @@ export default function TimerScreen(): React.JSX.Element {
       // The banner above states the level, XP and streak the award just moved; without
       // this it would keep showing the old figures until the screen remounted.
       void queryClient.invalidateQueries({ queryKey: ['profile'] });
-      // The session just hit the hunted monster.
-      void queryClient.invalidateQueries({ queryKey: ['monsters'] });
+      // The session just advanced the story.
+      void queryClient.invalidateQueries({ queryKey: ['story'] });
     },
     onError: (err: unknown) => setError(describeError(err)),
   });
@@ -331,15 +294,17 @@ export default function TimerScreen(): React.JSX.Element {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setError(null);
       const unit = input.habit.unit ?? '';
-      if (result.monster?.defeated) {
+      const hit = result.story;
+      if (hit && hit.won.length > 0) {
+        // A fight fell to a tap: worth the full reward screen.
         setReward(result);
-      } else if (result.monster) {
-        showToast(`+${input.count} ${unit} · ${result.monster.name} −${result.monster.damage} can`);
+      } else if (hit && hit.current) {
+        showToast(`+${input.count} ${unit} · ${hit.current.name} −${hit.damage}`);
       } else {
         showToast(`+${input.count} ${unit}${result.xp > 0 ? ` · +${result.xp} XP` : ''}`);
       }
       void queryClient.invalidateQueries({ queryKey: ['habits'] });
-      void queryClient.invalidateQueries({ queryKey: ['monsters'] });
+      void queryClient.invalidateQueries({ queryKey: ['story'] });
       void queryClient.invalidateQueries({ queryKey: ['profile'] });
     },
     onError: (err: unknown) => setError(describeError(err)),
@@ -386,6 +351,7 @@ export default function TimerScreen(): React.JSX.Element {
   });
 
   const dismissReward = useCallback(() => setReward(null), []);
+  const clearIntro = useCallback(() => useTimerStore.getState().clearIntro(), []);
 
   if (habitsQuery.isPending) {
     return (
@@ -423,14 +389,7 @@ export default function TimerScreen(): React.JSX.Element {
     deleteMutation.isPending ||
     pauseMutation.isPending;
 
-  // Target progress is purely presentational: it reads the same elapsed seconds the
-  // readout already shows, so it adds no state and no logic — it just stops the
-  // running screen from being one number on an empty page.
-  const targetSec = (runningHabit?.targetMinutes ?? 0) * 60;
-  const targetRatio = targetSec > 0 ? Math.min(1, timer.elapsedSec / targetSec) : 0;
   const isPaused = timer.pausedAtMs !== null;
-  // Pauses count as interruptions on the server; the readout says so before it does.
-  const undisturbed = timer.interruptions === 0 && !isPaused && (activeSession?.pauseCount ?? 0) === 0;
 
   const today = localDateKey(new Date());
   const doneToday = habits.filter((habit) =>
@@ -439,137 +398,38 @@ export default function TimerScreen(): React.JSX.Element {
       : habit.lastCompletedDate === today,
   ).length;
 
-  // A running session takes over the whole screen: there is exactly one thing to look
-  // at, and the hero would only push the readout off a small handset.
+  // A running session takes over the whole screen as the battle (game-design §5.3).
   if (isRunning) {
     return (
       <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
-        <View style={styles.runningPane}>
-          {/*
-            The fight. The monster's HP drains as the minutes run — an estimate from
-            elapsed time, the category and focus, since the real hit is only known when
-            the server scores the session. Paused, it freezes with the clock.
-          */}
-          {activeHunt !== null && runningHabit !== null && (
-            <FightPanel
-              hunt={activeHunt}
-              projected={projectedSessionDamage({
-                elapsedSec: timer.elapsedSec,
-                category: runningHabit.category,
-                stat: resolveStat(runningHabit.category, runningHabit.stat),
-                interruptions: timer.interruptions + (activeSession?.pauseCount ?? 0),
-                weakness: activeHunt.monster.weakness,
-              })}
-              weak={resolveStat(runningHabit.category, runningHabit.stat) === activeHunt.monster.weakness}
-              elapsedSec={timer.elapsedSec}
-              interruptions={timer.interruptions}
-              paused={isPaused}
-            />
-          )}
+        <BattleView
+          story={story}
+          habit={runningHabit}
+          elapsedSec={timer.elapsedSec}
+          interruptions={timer.interruptions + (activeSession?.pauseCount ?? 0)}
+          paused={isPaused}
+          playerName={profile?.user.displayName?.trim() || profile?.user.username || 'Sen'}
+          playerLevel={profile?.progress.level ?? 1}
+          busy={busy}
+          pausing={pauseMutation.isPending}
+          finishing={completeMutation.isPending}
+          onTogglePause={() =>
+            timer.sessionId && pauseMutation.mutate({ sessionId: timer.sessionId, pause: !isPaused })
+          }
+          onFinish={() => timer.sessionId && completeMutation.mutate(timer.sessionId)}
+          onAbandon={() => timer.sessionId && abandonMutation.mutate(timer.sessionId)}
+        />
 
-          <View style={styles.runningCard}>
-            <View
-              style={[
-                styles.habitIcon,
-                styles.habitIconLarge,
-                { backgroundColor: runningHabit ? habitAccent(runningHabit) : colors.accent },
-              ]}
-            >
-              <Icon
-                name={runningHabit ? habitIcon(runningHabit.category) : 'xp-bolt-filled'}
-                size={ICON_SIZE_LARGE}
-                color={colors.textOnAccent}
-              />
-            </View>
-
-            <Text style={styles.overlineCentered}>Odak seansı</Text>
-
-            {/*
-              The habit name is not upper-cased in style any more: `textTransform`
-              cases with the device locale, which turns a Turkish "i" into "I"
-              instead of "İ". The overline above carries that job instead.
-            */}
-            <Text style={styles.runningHabit} numberOfLines={1}>
-              {runningHabit?.name ?? 'Seans'}
-            </Text>
-
-            <Text style={styles.timer}>{formatElapsed(timer.elapsedSec)}</Text>
-
-            {targetSec > 0 && (
-              <View style={styles.targetBlock}>
-                <View style={styles.targetTrack}>
-                  <View
-                    style={[
-                      styles.targetFill,
-                      { width: `${Math.round(targetRatio * 100)}%` },
-                      targetRatio >= 1 && styles.targetFillDone,
-                    ]}
-                  />
-                </View>
-                <Text style={styles.targetLabel}>{runningHabit?.targetMinutes} dk hedef</Text>
-              </View>
-            )}
-
-            {isPaused ? (
-              <View style={[styles.statusChip, styles.statusPaused]}>
-                <Icon name="clock" size={ICON_SIZE_SMALL} color={colors.textMuted} />
-                <Text style={[styles.statusText, { color: colors.textMuted }]}>
-                  Duraklatıldı — süre işlemiyor
-                </Text>
-              </View>
-            ) : (
-              <View style={[styles.statusChip, undisturbed ? styles.statusGood : styles.statusWarn]}>
-                <Icon
-                  name={undisturbed ? 'check-circle-filled' : 'alert'}
-                  size={ICON_SIZE_SMALL}
-                  color={undisturbed ? colors.successDark : colors.fireDark}
-                />
-                <Text
-                  style={[
-                    styles.statusText,
-                    { color: undisturbed ? colors.successDark : colors.fireDark },
-                  ]}
-                >
-                  {undisturbed ? 'Kesintisiz — bonus kazanıyorsun' : 'Kesinti oldu — bonus yok'}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          <View style={styles.actions}>
-            {/* Pause leads when running, resume when paused: the next thing to do. */}
-            <Button
-              label={isPaused ? 'Devam et' : 'Duraklat'}
-              tone={isPaused ? 'primary' : 'neutral'}
-              loading={pauseMutation.isPending}
-              disabled={busy}
-              onPress={() =>
-                timer.sessionId && pauseMutation.mutate({ sessionId: timer.sessionId, pause: !isPaused })
-              }
-              accessibilityLabel={isPaused ? 'Seansa devam et' : 'Seansı duraklat'}
-            />
-
-            <Button
-              label={completeMutation.isPending ? 'Bitiriliyor…' : 'Bitir'}
-              tone="primary"
-              loading={completeMutation.isPending}
-              disabled={busy}
-              onPress={() => timer.sessionId && completeMutation.mutate(timer.sessionId)}
-              accessibilityLabel="Seansı bitir"
-            />
-
-            {/* Quiet, last: throwing a session away is never the main thing. */}
-            <Pressable
-              disabled={busy}
-              onPress={() => timer.sessionId && abandonMutation.mutate(timer.sessionId)}
-              accessibilityRole="button"
-              accessibilityLabel="Seansı iptal et"
-              style={({ pressed }) => [styles.abandon, pressed && styles.inert]}
-            >
-              <Text style={styles.abandonText}>Vazgeç</Text>
-            </Pressable>
-          </View>
-        </View>
+        {/* The versus intro plays over the battle once, when a session is started. */}
+        {timer.introPending && story?.current && (
+          <VersusIntro
+            fight={story.current}
+            playerName={profile?.user.displayName?.trim() || profile?.user.username || 'Sen'}
+            playerLevel={profile?.progress.level ?? 1}
+            playerTitle={bossTitle}
+            onDone={clearIntro}
+          />
+        )}
 
         {error && (
           <View style={styles.errorBanner} accessibilityRole="alert">
@@ -613,18 +473,18 @@ export default function TimerScreen(): React.JSX.Element {
           <CharacterHeader
             image="today"
             name={profile.user.displayName?.trim() || profile.user.username}
+            // The class once chosen, the latest title once earned; until then the
+            // player is simply new — "Sınıf yok" would read as something missing.
             className={
-              bossTitle !== null
-                ? `${describeClass(profile.user.classType)} · ${bossTitle}`
-                : describeClass(profile.user.classType)
+              [profile.user.classType ? describeClass(profile.user.classType) : null, bossTitle]
+                .filter(Boolean)
+                .join(' · ') || 'Yeni kahraman'
             }
             level={profile.progress.level}
             ratio={profile.progress.ratio}
             xpIntoLevel={profile.progress.xpIntoLevel}
             xpForNextLevel={profile.progress.isMaxLevel ? 0 : profile.progress.xpForNextLevel}
-            streak={statsSummary?.currentStreak ?? 0}
-            xp={profile.user.cycleXp}
-            statPoints={statTotal}
+            streak={profile.dayStreak}
             avatarUrl={profile.user.avatarUrl}
             prestige={profile.user.prestige}
           />
@@ -633,6 +493,35 @@ export default function TimerScreen(): React.JSX.Element {
         )}
 
         <View style={styles.pane}>
+          {/*
+            The mission: the fight under way and the one button that answers "what
+            now?". The story's last page has no fight left, only the fire.
+          */}
+          {story?.current ? (
+            <MissionCard
+              fight={story.current}
+              habits={habits}
+              today={today}
+              doneToday={doneToday}
+              total={habits.length}
+              dayStreak={profile?.dayStreak ?? 0}
+              busy={busy}
+              onFight={(habitId) => startMutation.mutate(habitId)}
+              onAddHabit={(category) => {
+                setAddCategory(category ?? null);
+                setAdding(true);
+                setEditing(false);
+              }}
+            />
+          ) : story?.finished ? (
+            <View style={styles.finished}>
+              <Icon name="flame-filled" size={ICON_SIZE_LARGE} color={colors.fire} />
+              <Text style={styles.finishedText}>
+                İrade Ateşi yeniden yanıyor. Hikaye bitti; alışkanlıkların sürüyor.
+              </Text>
+            </View>
+          ) : null}
+
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Bugün</Text>
             <View style={styles.sectionTrailing}>
@@ -691,7 +580,7 @@ export default function TimerScreen(): React.JSX.Element {
               <View style={styles.empty}>
                 <Text style={styles.emptyTitle}>Henüz alışkanlık yok</Text>
                 <Text style={styles.emptyText}>
-                  İlk alışkanlığını ekle, sonra ona dokunarak bir seans başlat.
+                  Her alışkanlık bir silah: ekle, dokun, sayaç işlerken canavar erisin.
                 </Text>
                 <Button
                   label="Alışkanlık ekle"
@@ -902,38 +791,6 @@ export default function TimerScreen(): React.JSX.Element {
               <View style={styles.sectionSpacer} />
             </>
           )}
-
-          {/*
-            The season, as one quiet row — hidden entirely when there is no season,
-            since an empty banner teaches nothing. Theme and multiplier are one line of
-            text rather than chips: they are facts to read, not things to press.
-          */}
-          {season !== null && (
-            <View style={styles.seasonPanel}>
-              <View style={styles.seasonDisc}>
-                <Icon name="swords" size={ICON_SIZE} color={colors.goldDark} />
-              </View>
-
-              <View style={styles.seasonText}>
-                <Text style={styles.seasonLabel}>Aktif sezon</Text>
-                <Text style={styles.seasonName} numberOfLines={1}>
-                  {season.name}
-                </Text>
-                {(season.theme !== null || season.eventMultiplier !== null) && (
-                  <Text style={styles.seasonMeta} numberOfLines={1}>
-                    {[
-                      season.theme,
-                      season.eventMultiplier !== null
-                        ? `×${formatMultiplier(season.eventMultiplier)} XP`
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </Text>
-                )}
-              </View>
-            </View>
-          )}
         </View>
       </ScrollView>
 
@@ -968,155 +825,6 @@ export default function TimerScreen(): React.JSX.Element {
   );
 }
 
-/** Minutes between critical hits: 15, 30, 45… */
-const CRIT_EVERY_MINUTES = 15;
-
-interface HitPop {
-  readonly id: number;
-  readonly value: number;
-  readonly crit: boolean;
-}
-
-/**
- * The hunted monster on the timer screen, its HP draining with the session.
- *
- * A long session must not feel like waiting, so the fight is paced in blows: every
- * minute lands a visible hit — the emblem shakes, the damage floats up, the phone taps
- * — and every fifteenth is a critical. Minutes in a row without leaving the app build
- * a combo; leaving breaks it (the monster's counter-attack). All of this is show: the
- * damage is the same estimate as the bar, and the real hit is scored on completion.
- */
-function FightPanel({
-  hunt,
-  projected,
-  weak,
-  elapsedSec,
-  interruptions,
-  paused,
-}: {
-  readonly hunt: Hunt;
-  readonly projected: number;
-  readonly weak: boolean;
-  readonly elapsedSec: number;
-  readonly interruptions: number;
-  readonly paused: boolean;
-}): React.JSX.Element {
-  const minute = Math.floor(elapsedSec / 60);
-  const [pops, setPops] = useState<readonly HitPop[]>([]);
-  const [counterAttack, setCounterAttack] = useState(false);
-  const lastMinute = useRef(minute);
-  const lastProjected = useRef(projected);
-  const comboFrom = useRef(minute);
-  const lastInterruptions = useRef(interruptions);
-  const popId = useRef(0);
-  const shake = useSharedValue(0);
-
-  // A minute landed: one blow, or a critical on the quarter hour.
-  useEffect(() => {
-    if (minute <= lastMinute.current) {
-      lastMinute.current = minute;
-      lastProjected.current = projected;
-      return;
-    }
-    const value = Math.max(0, projected - lastProjected.current);
-    const crit = minute % CRIT_EVERY_MINUTES === 0;
-    lastMinute.current = minute;
-    lastProjected.current = projected;
-    if (value <= 0) return;
-
-    popId.current += 1;
-    const pop = { id: popId.current, value, crit };
-    setPops((current) => [...current.slice(-2), pop]);
-    setTimeout(() => setPops((current) => current.filter((item) => item.id !== pop.id)), 1400);
-
-    const amplitude = crit ? 7 : 4;
-    shake.value = withSequence(
-      withTiming(-amplitude, { duration: 50 }),
-      withTiming(amplitude, { duration: 50 }),
-      withTiming(-amplitude / 2, { duration: 50 }),
-      withTiming(0, { duration: 50 }),
-    );
-    if (crit) void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    else void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    // `shake` is a stable shared value.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [minute]);
-
-  // Leaving the app is the monster's opening: the combo breaks.
-  useEffect(() => {
-    if (interruptions > lastInterruptions.current) {
-      comboFrom.current = minute;
-      setCounterAttack(true);
-      const id = setTimeout(() => setCounterAttack(false), 2500);
-      lastInterruptions.current = interruptions;
-      return () => clearTimeout(id);
-    }
-    lastInterruptions.current = interruptions;
-    return undefined;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interruptions]);
-
-  const shakeStyle = useAnimatedStyle(() => ({ transform: [{ translateX: shake.value }] }));
-
-  const hpLeft = Math.max(0, hunt.hp - projected);
-  const ratio = hunt.maxHp > 0 ? hpLeft / hunt.maxHp : 0;
-  const felled = hpLeft === 0;
-  const combo = minute - comboFrom.current;
-  const nextCrit = CRIT_EVERY_MINUTES - (minute % CRIT_EVERY_MINUTES);
-
-  return (
-    <View
-      style={styles.fight}
-      accessible
-      accessibilityLabel={`${hunt.name}: yaklaşık ${hpLeft} / ${hunt.maxHp} can. Bu seans yaklaşık ${projected} hasar.`}
-    >
-      <Animated.View style={[styles.fightEmblem, hunt.isBoss && styles.fightEmblemBoss, shakeStyle]}>
-        <Icon name={monsterIcon(hunt.monster.key)} size={22} color={hunt.isBoss ? colors.gold : colors.textOnDark} />
-        {pops.map((pop) => (
-          <Animated.Text
-            key={pop.id}
-            entering={FadeInDown.duration(180)}
-            exiting={FadeOutUp.duration(500)}
-            style={[styles.pop, pop.crit && styles.popCrit]}
-          >
-            {pop.crit ? `KRİTİK −${pop.value}` : `−${pop.value}`}
-          </Animated.Text>
-        ))}
-      </Animated.View>
-      <View style={styles.fightBody}>
-        <View style={styles.fightTop}>
-          <Text style={styles.fightName} numberOfLines={1}>
-            {hunt.isBoss ? 'BOSS · ' : ''}
-            {hunt.name}
-          </Text>
-          <Text style={styles.fightHp}>
-            ~{hpLeft}/{hunt.maxHp}
-          </Text>
-        </View>
-        <View style={styles.fightTrack}>
-          <View style={[styles.fightFill, { width: `${Math.round(ratio * 100)}%` }]} />
-        </View>
-        <Text style={[styles.fightMeta, counterAttack && styles.fightMetaAlert]}>
-          {counterAttack
-            ? `${hunt.name} karşı saldırdı! Kombo bozuldu.`
-            : felled
-              ? 'Bitir de — bu seans onu deviriyor!'
-              : paused
-                ? 'Duraklatıldı — canavar bekliyor.'
-                : `~${projected} hasar${weak ? ' · zayıf nokta ×1.5' : ''}${
-                    combo >= 2 ? ` · ×${combo} kombo` : ''
-                  } · kritik vuruşa ${nextCrit} dk`}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-/** "1.5" but "2" — a trailing ".0" on a multiplier reads as precision it does not have. */
-function formatMultiplier(value: number): string {
-  return value.toFixed(value % 1 === 0 ? 0 : 1);
-}
-
 function describeError(error: unknown): string {
   if (error instanceof ApiError) {
     return error.code === 'NETWORK' ? 'Sunucuya ulaşılamadı. Bağlantını kontrol et.' : error.message;
@@ -1127,7 +835,6 @@ function describeError(error: unknown): string {
 /** Disc sizes. Big enough that the icon is the row's landmark, not a decoration. */
 const HABIT_DISC = 36;
 const SESSION_DISC = 56;
-const SEASON_DISC = 44;
 const TARGET_TRACK = 6;
 /** A comfortable thumb target for the screen's primary action. */
 const HABIT_ROW_HEIGHT = 60;
@@ -1257,65 +964,9 @@ const styles = StyleSheet.create({
   },
   sectionSpacer: { height: spacing.sm },
 
-  seasonPanel: {
-    ...cardStyle,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  /** Gold is rank and reward, which a season is; soft so it marks rather than shouts. */
-  seasonDisc: {
-    width: SEASON_DISC,
-    height: SEASON_DISC,
-    borderRadius: radius.sm + 2,
-    backgroundColor: colors.goldSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  seasonText: { flex: 1, gap: 2 },
-  seasonLabel: { ...type.caption, color: colors.textMuted },
-  seasonName: { ...type.heading, color: colors.text },
-  seasonMeta: { ...type.caption, color: colors.textMuted },
 
   runningPane: { flex: 1, justifyContent: 'center', padding: spacing.lg, gap: spacing.lg },
 
-  fight: {
-    ...cardStyle,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  fightEmblem: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
-    backgroundColor: colors.stone,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fightEmblemBoss: { borderWidth: 2, borderColor: colors.gold },
-  fightBody: { flex: 1, gap: spacing.xs },
-  fightTop: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm },
-  fightName: { ...type.heading, color: colors.text, flexShrink: 1 },
-  fightHp: { ...type.label, color: colors.textMuted, fontVariant: ['tabular-nums'] },
-  fightTrack: {
-    height: 10,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surfaceRaised,
-    overflow: 'hidden',
-  },
-  fightFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.danger },
-  fightMeta: { ...type.caption, color: colors.textMuted },
-  fightMetaAlert: { color: colors.danger, fontFamily: 'Nunito_800ExtraBold' },
-  // Floats off the emblem: the minute's blow.
-  pop: {
-    position: 'absolute',
-    top: -18,
-    alignSelf: 'center',
-    ...type.label,
-    color: colors.danger,
-  },
-  popCrit: { color: colors.goldDark, fontFamily: 'Nunito_800ExtraBold', top: -22 },
   runningCard: {
     alignItems: 'center',
     gap: spacing.sm,
@@ -1350,6 +1001,14 @@ const styles = StyleSheet.create({
   abandon: { alignSelf: 'center', paddingVertical: spacing.sm, paddingHorizontal: spacing.lg },
   abandonText: { ...type.label, color: colors.danger },
   doneTrailing: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  finished: {
+    ...cardStyle,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.goldSoft,
+  },
+  finishedText: { ...type.label, color: colors.text, flex: 1 },
   toast: {
     position: 'absolute',
     left: spacing.md,

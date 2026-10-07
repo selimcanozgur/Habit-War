@@ -45,7 +45,7 @@ import {
   readStats,
   type StatsPeriod,
 } from '../../src/api/profile';
-import { getBestiary } from '../../src/api/monsters';
+import { getStory } from '../../src/api/story';
 import { AchievementShelf } from '../../src/components/AchievementShelf';
 import { Button, cardStyle } from '../../src/components/Button';
 import { Group } from '../../src/components/Group';
@@ -134,9 +134,9 @@ export default function ProfileScreen(): React.JSX.Element {
   });
   const achievementsQuery = useQuery({ queryKey: ['achievements'], queryFn: listAchievements });
   /** Shares the battle tab's cache: the trophies and the title they earned. */
-  const bestiaryQuery = useQuery({ queryKey: ['monsters'], queryFn: getBestiary });
-  const trophies = bestiaryQuery.data?.trophies ?? [];
-  // The latest title is worn: the most recent thing the player beat.
+  const storyQuery = useQuery({ queryKey: ['story'], queryFn: getStory });
+  // Newest first: the latest boss beaten is the title worn.
+  const trophies = [...(storyQuery.data?.story.completed ?? [])].reverse();
   const title = trophies[0]?.title ?? null;
 
   // The API is still in flux between the agreed contract and what shipped, so every
@@ -266,7 +266,7 @@ export default function ProfileScreen(): React.JSX.Element {
             <StandingBadge
               icon="flame-filled"
               tint={colors.fire}
-              value={`${summary?.currentStreak ?? 0}`}
+              value={`${profile?.dayStreak ?? 0}`}
               label="Gün Serisi"
             />
             <StandingBadge
@@ -374,7 +374,7 @@ export default function ProfileScreen(): React.JSX.Element {
           {/* ------------------------------------------------------ streak grid */}
           <StreakCalendar
             activeDays={activeDays}
-            currentStreak={summary?.currentStreak ?? 0}
+            currentStreak={profile?.dayStreak ?? 0}
           />
 
           {/* --------------------------------------------------------- badges */}
@@ -400,20 +400,22 @@ export default function ProfileScreen(): React.JSX.Element {
             <AchievementShelf achievements={achievements} />
           )}
 
-          {/* ---------------------------------------------------- monster trophies */}
+          {/* ------------------------------------------------------- story trophies */}
           {trophies.length > 0 && (
             <View style={styles.trophySection}>
-              <Text style={styles.groupTitle}>Yenilen canavarlar</Text>
+              <Text style={styles.groupTitle}>Kurtarılan bölgeler</Text>
               <Group inset={spacing.md + 36 + spacing.md}>
                 {trophies.map((trophy) => (
-                  <View key={`${trophy.key}-${trophy.defeatedAt}`} style={styles.trophyRow}>
+                  <View key={trophy.chapter} style={styles.trophyRow}>
                     <View style={styles.trophyIcon}>
                       <Icon name="trophy" size={ICON_SIZE} color={colors.goldDark} />
                     </View>
                     <View style={styles.trophyText}>
-                      <Text style={styles.trophyName}>{trophy.name}</Text>
+                      <Text style={styles.trophyName}>
+                        Bölüm {trophy.chapter} · {trophy.bossName}
+                      </Text>
                       <Text style={styles.trophyMeta}>
-                        {trophy.title} · {new Date(trophy.defeatedAt).toLocaleDateString('tr-TR')}
+                        {trophy.title} · {new Date(trophy.completedAt).toLocaleDateString('tr-TR')}
                       </Text>
                     </View>
                   </View>

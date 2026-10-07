@@ -7,16 +7,22 @@
  * Signed-out users are sent to sign-in from here rather than from the root layout:
  * the root must keep rendering its Slot for the navigation to land.
  *
+ * A player who has not been through the first-run flow is sent there (app/onboarding.tsx)
+ * before any tab renders: the tabs assume a hero with a name and habits to fight with.
+ *
  * While a session runs, the running-session bar sits just above the tab bar on every
  * tab but Bugün — which already is the timer — and the screens leave room for it.
  */
 
+import { useQuery } from '@tanstack/react-query';
 import { Redirect, Tabs, usePathname } from 'expo-router';
-import { StyleSheet, View, type ColorValue } from 'react-native';
+import { ActivityIndicator, StyleSheet, View, type ColorValue } from 'react-native';
 
+import { getProfile, needsOnboarding } from '../../src/api/profile';
 import { useAuth } from '../../src/auth/AuthContext';
 import { Icon, type IconName } from '../../src/components/Icon';
 import { RUNNING_BAR_HEIGHT, RunningSessionBar } from '../../src/components/RunningSessionBar';
+import { FEATURES } from '../../src/features';
 import { useTimerStore } from '../../src/stores/timer';
 import { colors, hairline } from '../../src/theme';
 
@@ -47,7 +53,19 @@ export default function TabsLayout(): React.JSX.Element {
   const { user } = useAuth();
   const pathname = usePathname();
   const running = useTimerStore((state) => state.sessionId !== null);
+  // Shares Bugün's and the profile's cache key: one request serves all three.
+  const profileQuery = useQuery({ queryKey: ['profile'], queryFn: getProfile, enabled: user !== null });
   if (!user) return <Redirect href="/(auth)/sign-in" />;
+  // Held until the profile says whether the first-run flow is due, so a new player
+  // never glimpses an empty Bugün first. A profile that fails to load lets the tabs open.
+  if (profileQuery.isPending) {
+    return (
+      <View style={[styles.root, styles.loading]}>
+        <ActivityIndicator color={colors.accent} />
+      </View>
+    );
+  }
+  if (needsOnboarding(profileQuery.data)) return <Redirect href="/onboarding" />;
 
   // Bugün is the timer itself while a session runs; the bar would repeat it.
   const showBar = running && pathname !== '/';
@@ -93,11 +111,16 @@ export default function TabsLayout(): React.JSX.Element {
         />
         <Tabs.Screen
           name="feed"
-          options={{ title: 'Akış', tabBarIcon: tabIcon('feed', 'feed-filled') }}
+          // `href: null` keeps the route but drops it from the tab bar.
+          options={{
+            title: 'Akış',
+            tabBarIcon: tabIcon('feed', 'feed-filled'),
+            ...(FEATURES.feed ? {} : { href: null }),
+          }}
         />
         <Tabs.Screen
-          name="battle"
-          options={{ title: 'Savaş', tabBarIcon: tabIcon('battle', 'battle-filled') }}
+          name="story"
+          options={{ title: 'Hikaye', tabBarIcon: tabIcon('battle', 'battle-filled') }}
         />
         <Tabs.Screen
           name="friends"
@@ -110,6 +133,10 @@ export default function TabsLayout(): React.JSX.Element {
           name="profile"
           options={{ title: 'Profil', tabBarIcon: tabIcon('profile', 'profile-filled') }}
         />
+        {/* Story pages: full screens under the tabs, reached from the story map. */}
+        <Tabs.Screen name="chapter/[n]" options={{ href: null }} />
+        <Tabs.Screen name="monsters" options={{ href: null }} />
+        <Tabs.Screen name="monster/[key]" options={{ href: null }} />
       </Tabs>
       {showBar && (
         <View style={styles.barSlot} pointerEvents="box-none">
@@ -122,5 +149,6 @@ export default function TabsLayout(): React.JSX.Element {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  loading: { backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
   barSlot: { position: 'absolute', left: 0, right: 0, bottom: TAB_BAR_HEIGHT },
 });

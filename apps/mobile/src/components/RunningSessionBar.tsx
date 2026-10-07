@@ -16,7 +16,7 @@ import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 
-import { getBestiary } from '../api/monsters';
+import { getStory } from '../api/story';
 import { listHabits } from '../api/sessions';
 import { formatElapsed, TICK_MS, useTimerStore } from '../stores/timer';
 import { colors, radius, spacing, type } from '../theme';
@@ -34,9 +34,9 @@ export function RunningSessionBar(): React.JSX.Element | null {
   // Shares the Bugün screen's cache, so the name costs no request.
   const habitsQuery = useQuery({ queryKey: ['habits'], queryFn: listHabits });
   const habit = habitsQuery.data?.habits.find((item) => item.id === habitId) ?? null;
-  // The monster this session is hitting, from the battle tab's cache.
-  const bestiaryQuery = useQuery({ queryKey: ['monsters'], queryFn: getBestiary });
-  const hunted = bestiaryQuery.data?.active?.name ?? null;
+  // The monster this session is hitting, from the story's cache.
+  const storyQuery = useQuery({ queryKey: ['story'], queryFn: getStory });
+  const hunted = storyQuery.data?.story.current?.name ?? null;
 
   useEffect(() => {
     if (!sessionId) return;

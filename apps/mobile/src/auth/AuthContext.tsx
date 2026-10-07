@@ -18,6 +18,7 @@
  * whole family, signing the user out for doing nothing but opening the app.
  */
 
+import { useQueryClient } from '@tanstack/react-query';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -31,6 +32,7 @@ import {
   type AuthUser,
 } from '../api/auth';
 import { ApiError, setAuthHeaderProvider } from '../api/client';
+import { useTimerStore } from '../stores/timer';
 import { clearSession, loadSession, saveSession } from './storage';
 
 interface Session {
@@ -67,6 +69,7 @@ const EXPIRY_MARGIN_MS = 30_000;
 export function AuthProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const [session, setSession] = useState<Session | null>(null);
   const [isRestoring, setIsRestoring] = useState(true);
+  const queryClient = useQueryClient();
 
   /*
     The session is mirrored in a ref because the header provider below is registered
@@ -92,8 +95,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
   const forget = useCallback(async (): Promise<void> => {
     sessionRef.current = null;
     setSession(null);
+    // Nothing of this account may outlive it on the device: the next one to sign in
+    // would otherwise see its habits, its story and its running session until each
+    // query happened to refetch — and skip its own first-run flow on a stale profile.
+    queryClient.clear();
+    useTimerStore.getState().stop();
     await clearSession();
-  }, []);
+  }, [queryClient]);
 
   /**
    * Returns a usable session, refreshing first if the token is spent.

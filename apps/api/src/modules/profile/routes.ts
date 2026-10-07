@@ -36,6 +36,11 @@ export async function profileRoutes(app: FastifyInstance): Promise<void> {
     return { user: await profiles.updateOwnProfile(request.userId, body) };
   });
 
+  /** The first-run flow is done; the app stops routing to it. */
+  app.post('/users/me/onboarding', async (request) => {
+    return profiles.completeOnboarding(request.userId);
+  });
+
   app.get('/users/me/stats', async (request) => {
     const { period } = statsQuery.parse(request.query);
     return { stats: await profiles.getStats(request.userId, period) };

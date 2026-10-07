@@ -7,7 +7,6 @@ import { COUNT_TARGET_MINUTES } from '@habitwar/domain';
 import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { HuntService } from '../../game/hunts.js';
 import { SessionService } from '../service.js';
 
 const prisma = new PrismaClient();
@@ -108,10 +107,10 @@ describe('logCount', () => {
     ).rejects.toMatchObject({ statusCode: 422 });
   });
 
-  it('hits the hunted monster like any session', async () => {
-    await new HuntService({ prisma, now }).bestiary(userId); // starts the first monster
-    tick();
+  it('hits the story like any session: its credited seconds', async () => {
+    // 25 of 50 is half the day's 15 minutes: 7 whole minutes, 420 seconds — against a
+    // chapter-one monster weak to STR, which push-ups train: x1.5.
     const result = await log(25);
-    expect(result.monster?.damage ?? 0).toBeGreaterThan(0);
+    expect(result.story?.damage).toBe(Math.floor(7 * 60 * 1.5));
   });
 });
