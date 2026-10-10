@@ -7,10 +7,8 @@
  * timestamps. Comparing raw UTC timestamps would break a streak for anyone west of
  * UTC who logs a session late at night.
  *
- * SPEC GAP: the spec stores `currentStreak` on Habit but its XP formula and UI both
- * read as if the streak were per-user. This module is explicit: streaks are
- * PER-HABIT, because that is what the multiplier is meant to reward — consistency
- * on a specific habit, not merely opening the app.
+ * The reading streak is per user. Missed days are forgiven up to STREAK_GRACE_DAYS
+ * (balance.ts), which callers pass as `freezesAvailable` below.
  */
 
 /** A calendar day in a specific timezone, formatted YYYY-MM-DD. */
@@ -67,12 +65,11 @@ export interface StreakUpdate extends StreakState {
  * - Same day as the last completion: streak unchanged (a second session does not
  *   double the streak).
  * - Exactly one day later: streak increments.
- * - A gap with a freeze available: the gap is absorbed, streak increments.
+ * - A gap of at most `freezesAvailable` missed days: forgiven, streak increments.
  * - A larger gap: streak resets to 1.
  *
- * SPEC GAP: "streak freezing" is offered twice in the spec as the humane
- * alternative to punishment, but never defined. Here a freeze covers exactly one
- * missed day; the caller owns how many freezes a user holds and when they refill.
+ * `freezesAvailable` is the number of missed days a gap may contain; for reading it
+ * is STREAK_GRACE_DAYS.
  */
 export function advanceStreak(
   state: StreakState,

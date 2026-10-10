@@ -23,11 +23,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ApiError } from '../../src/api/client';
 import { useAuth } from '../../src/auth/AuthContext';
+import { useT } from '../../src/i18n';
 import { FormField } from '../../src/components/FormField';
 import { colors, radius, spacing, type } from '../../src/theme';
 
 export default function SignUpScreen(): React.JSX.Element {
   const { signUp } = useAuth();
+  const t = useT();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -56,15 +58,15 @@ export default function SignUpScreen(): React.JSX.Element {
     let hasError = false;
 
     if (!trimmedEmail || !trimmedEmail.includes('@')) {
-      setEmailError('Geçerli bir e-posta adresi gir');
+      setEmailError(t.auth.emailInvalid);
       hasError = true;
     }
     if (password.length < 8) {
-      setPasswordError('Şifren en az 8 karakter olmalı');
+      setPasswordError(t.auth.passwordTooShort);
       hasError = true;
     }
     if (password !== confirm) {
-      setConfirmError('Şifreler eşleşmiyor');
+      setConfirmError(t.auth.passwordsDontMatch);
       hasError = true;
     }
     if (hasError) return;
@@ -76,23 +78,28 @@ export default function SignUpScreen(): React.JSX.Element {
     } catch (error) {
       if (error instanceof ApiError) {
         switch (error.code) {
-          case 'EMAIL_TAKEN':
-            setEmailError('Bu e-posta adresiyle zaten bir hesap var');
+          case 'CONFLICT':
+            setEmailError(t.auth.emailTaken);
             break;
-          case 'PASSWORD_TOO_SHORT':
-            setPasswordError('Şifren en az 8 karakter olmalı');
+          case 'UNPROCESSABLE': {
+            const problem = (error.details as { problem?: string } | undefined)?.problem;
+            setPasswordError(
+              problem === 'TOO_LONG'
+                ? t.auth.passwordTooLong
+                : problem === 'TOO_COMMON'
+                  ? t.auth.passwordTooCommon
+                  : t.auth.passwordTooShort,
+            );
             break;
-          case 'PASSWORD_TOO_LONG':
-            setPasswordError('Şifren çok uzun');
-            break;
-          case 'PASSWORD_COMMON':
-            setPasswordError('Bu şifre çok yaygın, başka bir şifre seç');
+          }
+          case 'NETWORK':
+            setGeneralError(t.common.networkError);
             break;
           default:
-            setGeneralError('Kayıt olunamadı. Lütfen tekrar dene.');
+            setGeneralError(t.auth.signUpFailed);
         }
       } else {
-        setGeneralError('Bağlantı hatası. İnternet bağlantını kontrol et.');
+        setGeneralError(t.common.networkError);
       }
     } finally {
       setLoading(false);
@@ -113,8 +120,8 @@ export default function SignUpScreen(): React.JSX.Element {
         >
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>Habit War'a katıl</Text>
-            <Text style={styles.subtitle}>Ücretsiz hesap oluştur</Text>
+            <Text style={styles.title}>{t.auth.signUpTitle}</Text>
+            <Text style={styles.subtitle}>{t.auth.signUpSubtitle}</Text>
           </View>
 
           {/* Form */}
@@ -126,7 +133,7 @@ export default function SignUpScreen(): React.JSX.Element {
             ) : null}
 
             <FormField
-              label="E-posta"
+              label={t.auth.email}
               value={email}
               onChangeText={(value) => {
                 setEmail(value);
@@ -141,12 +148,12 @@ export default function SignUpScreen(): React.JSX.Element {
               autoComplete="email"
               returnKeyType="next"
               onSubmitEditing={() => passwordRef.current?.focus()}
-              placeholder="ornek@mail.com"
+              placeholder={t.auth.emailPlaceholder}
             />
 
             <FormField
               ref={passwordRef}
-              label="Şifre"
+              label={t.auth.password}
               value={password}
               onChangeText={(value) => {
                 setPassword(value);
@@ -163,7 +170,7 @@ export default function SignUpScreen(): React.JSX.Element {
 
             <FormField
               ref={confirmRef}
-              label="Şifreyi onayla"
+              label={t.auth.confirmPassword}
               value={confirm}
               onChangeText={(value) => {
                 setConfirm(value);
@@ -189,19 +196,19 @@ export default function SignUpScreen(): React.JSX.Element {
               onPress={() => void handleSignUp()}
               disabled={loading}
               accessibilityRole="button"
-              accessibilityLabel="Kayıt ol"
+              accessibilityLabel={t.auth.signUp}
             >
               {loading ? (
                 <ActivityIndicator color={colors.textOnDark} size="small" />
               ) : (
-                <Text style={styles.primaryButtonText}>Kayıt Ol</Text>
+                <Text style={styles.primaryButtonText}>{t.auth.signUp}</Text>
               )}
             </Pressable>
 
             <View style={styles.footer}>
-              <Text style={styles.footerText}>Zaten hesabın var mı? </Text>
+              <Text style={styles.footerText}>{t.auth.haveAccount}</Text>
               <Pressable onPress={() => router.replace('/(auth)/sign-in')}>
-                <Text style={styles.link}>Giriş yap</Text>
+                <Text style={styles.link}>{t.auth.signIn}</Text>
               </Pressable>
             </View>
           </View>

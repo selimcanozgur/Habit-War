@@ -16,6 +16,7 @@
 import { forwardRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 
+import { useT } from '../i18n';
 import { colors, radius, spacing, type } from '../theme';
 import { Icon } from './Icon';
 
@@ -35,6 +36,7 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
   { label, error, hint, secure = false, ...inputProps },
   ref,
 ): React.JSX.Element {
+  const t = useT();
   const [revealed, setRevealed] = useState(false);
   const hasError = error !== undefined && error !== '';
 
@@ -59,7 +61,7 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
             onPress={() => setRevealed((value) => !value)}
             hitSlop={spacing.sm}
             accessibilityRole="button"
-            accessibilityLabel={revealed ? 'Şifreyi gizle' : 'Şifreyi göster'}
+            accessibilityLabel={revealed ? t.auth.hidePassword : t.auth.showPassword}
             style={({ pressed }) => [styles.toggle, pressed && styles.togglePressed]}
           >
             <Icon

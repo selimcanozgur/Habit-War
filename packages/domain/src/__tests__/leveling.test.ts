@@ -96,13 +96,11 @@ describe('levelProgress', () => {
 });
 
 /**
- * These assertions are the reason the curve was refitted. The spec's own
- * `floor(100 * n^1.6)` put level 50 at ~979,000 XP — roughly 36 years at the spec's
- * own 60-minutes-per-day assumption, against a stated "~2.5 years". The curve is
- * now calibrated so the spec's TIME column is what actually holds.
+ * The curve is calibrated on time, not XP: a reader who meets a small goal every day
+ * must see the milestones below on these schedules. See docs/adr/0001-level-curve.md.
  */
-describe('curve calibration against the spec time targets', () => {
-  it('reaches level 2 inside a single session', () => {
+describe('curve calibration against the time targets', () => {
+  it('reaches level 2 on the first day of reading', () => {
     expect(cumulativeXpForLevel(2)).toBeLessThanOrEqual(REFERENCE_DAILY_XP);
   });
 

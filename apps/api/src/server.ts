@@ -14,16 +14,10 @@ import corsPlugin from './plugins/cors.js';
 import prismaPlugin from './plugins/prisma.js';
 import rateLimitPlugin from './plugins/rate-limit.js';
 import securityHeadersPlugin from './plugins/security-headers.js';
-import { feedRoutes } from './modules/feed/routes.js';
-import { friendRoutes } from './modules/friends/routes.js';
-import { gameRoutes } from './modules/game/routes.js';
-import { habitRoutes } from './modules/habits/routes.js';
+import { bookRoutes } from './modules/books/routes.js';
 import { healthRoutes } from './modules/health/routes.js';
-import { moderationRoutes } from './modules/moderation/routes.js';
-import { notificationRoutes } from './modules/notifications/routes.js';
-import { profileRoutes } from './modules/profile/routes.js';
-import { safetyRoutes } from './modules/safety/routes.js';
-import { sessionRoutes } from './modules/sessions/routes.js';
+import { meRoutes } from './modules/me/routes.js';
+import { readingRoutes } from './modules/reading/routes.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { createMailSender } from './modules/auth/mail.js';
 import { appleVerifier, googleVerifier } from './modules/auth/providers.js';
@@ -69,17 +63,9 @@ export async function buildServer(
 
   // Every module below registers its own requireUser preHandler, so order carries no
   // authorisation meaning — it is grouped by concern for readability only.
-  await app.register(habitRoutes, { prefix: API_PREFIX });
-  await app.register(sessionRoutes, { prefix: API_PREFIX });
-  await app.register(profileRoutes, { prefix: API_PREFIX });
-  await app.register(friendRoutes, { prefix: API_PREFIX });
-  await app.register(feedRoutes, { prefix: API_PREFIX });
-  await app.register(gameRoutes, { prefix: API_PREFIX });
-  await app.register(notificationRoutes, { prefix: API_PREFIX });
-  await app.register(safetyRoutes, { prefix: API_PREFIX });
-
-  // Staff-only. Its own preHandler is requireModerator, not requireUser.
-  await app.register(moderationRoutes, { prefix: API_PREFIX });
+  await app.register(meRoutes, { prefix: API_PREFIX });
+  await app.register(bookRoutes, { prefix: API_PREFIX });
+  await app.register(readingRoutes, { prefix: API_PREFIX });
 
   return app;
 }

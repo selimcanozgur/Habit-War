@@ -52,26 +52,13 @@ export const ROUTE_LIMITS: Readonly<Record<string, { max: number; timeWindow: nu
   // reason to call it repeatedly.
   'DELETE:/v1/me': { max: 5, timeWindow: HOUR },
 
-  // XP creation. A session lasts minutes at minimum, so even an eager user with
-  // several habits cannot legitimately start more than a few in a minute.
-  'POST:/v1/sessions/start': { max: 10, timeWindow: MINUTE },
-  'POST:/v1/sessions/:id/complete': { max: 20, timeWindow: MINUTE },
+  // XP creation. A reader logs a few times a day; ten in a minute is already a
+  // script, or a retry loop the idempotency key will absorb anyway.
+  'POST:/v1/books/:id/logs': { max: 10, timeWindow: MINUTE },
 
-  // Enumeration surfaces. Search is debounced client-side to roughly one call per
-  // pause in typing; 30/min is generous for that and useless for walking the table.
-  'GET:/v1/users/search': { max: 30, timeWindow: MINUTE },
-  'POST:/v1/friends/request': { max: 20, timeWindow: HOUR },
-
-  // Content creation. Spam control, not throughput control.
-  'POST:/v1/posts': { max: 15, timeWindow: HOUR },
-  'POST:/v1/posts/:id/replies': { max: 30, timeWindow: HOUR },
-
-  // Report spam is itself a form of harassment: burying a moderator in reports about
-  // one person is a way to attack them. Still high enough to report a genuinely bad
-  // afternoon in the feed.
-  'POST:/v1/reports': { max: 20, timeWindow: HOUR },
-
-  'POST:/v1/blocks': { max: 30, timeWindow: HOUR },
+  // Shelf edits. Adding thirty books in an hour is a very good evening with a
+  // library app, not ordinary use.
+  'POST:/v1/books': { max: 30, timeWindow: HOUR },
 };
 
 /**

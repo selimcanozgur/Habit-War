@@ -23,11 +23,13 @@ import { requestPasswordReset } from '../../src/api/auth';
 import { ApiError } from '../../src/api/client';
 import { FormField } from '../../src/components/FormField';
 import { Icon } from '../../src/components/Icon';
+import { useT } from '../../src/i18n';
 import { colors, radius, spacing, type } from '../../src/theme';
 
 type Step = 'form' | 'sent';
 
 export default function ForgotPasswordScreen(): React.JSX.Element {
+  const t = useT();
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -36,7 +38,7 @@ export default function ForgotPasswordScreen(): React.JSX.Element {
   async function handleSubmit(): Promise<void> {
     const trimmed = email.trim().toLowerCase();
     if (!trimmed || !trimmed.includes('@')) {
-      setEmailError('Geçerli bir e-posta adresi gir');
+      setEmailError(t.auth.emailInvalid);
       return;
     }
 
@@ -48,7 +50,7 @@ export default function ForgotPasswordScreen(): React.JSX.Element {
       // The server always returns 204, even for unknown emails, to prevent enumeration.
       // A network error is the only real failure here.
       if (error instanceof ApiError && error.code === 'NETWORK') {
-        setEmailError('Bağlantı hatası. İnternet bağlantını kontrol et.');
+        setEmailError(t.common.networkError);
       } else {
         // Treat any other error the same as success to avoid leaking information.
         setStep('sent');
@@ -65,18 +67,15 @@ export default function ForgotPasswordScreen(): React.JSX.Element {
           <View style={styles.sentIconWrap}>
             <Icon name="check-circle" size={48} color={colors.accent} />
           </View>
-          <Text style={styles.sentTitle}>Bağlantı gönderildi</Text>
-          <Text style={styles.sentBody}>
-            Eğer bu adresle bir hesap varsa, sıfırlama bağlantısı birkaç dakika içinde gelecek. Spam
-            klasörünü de kontrol et.
-          </Text>
+          <Text style={styles.sentTitle}>{t.auth.linkSentTitle}</Text>
+          <Text style={styles.sentBody}>{t.auth.linkSentBody}</Text>
           <Pressable
             style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed]}
             onPress={() => router.replace('/(auth)/sign-in')}
             accessibilityRole="button"
-            accessibilityLabel="Giriş ekranına dön"
+            accessibilityLabel={t.auth.backToSignIn}
           >
-            <Text style={styles.primaryButtonText}>Giriş Ekranına Dön</Text>
+            <Text style={styles.primaryButtonText}>{t.auth.backToSignIn}</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -100,21 +99,19 @@ export default function ForgotPasswordScreen(): React.JSX.Element {
             onPress={() => router.back()}
             style={styles.backButton}
             accessibilityRole="button"
-            accessibilityLabel="Geri"
+            accessibilityLabel={t.common.back}
           >
             <Icon name="arrow-left" size={22} color={colors.textMuted} />
           </Pressable>
 
           <View style={styles.header}>
-            <Text style={styles.title}>Şifreni sıfırla</Text>
-            <Text style={styles.subtitle}>
-              E-posta adresini gir, sıfırlama bağlantısı gönderelim.
-            </Text>
+            <Text style={styles.title}>{t.auth.resetTitle}</Text>
+            <Text style={styles.subtitle}>{t.auth.resetSubtitle}</Text>
           </View>
 
           <View style={styles.form}>
             <FormField
-              label="E-posta"
+              label={t.auth.email}
               value={email}
               onChangeText={(value) => {
                 setEmail(value);
@@ -128,7 +125,7 @@ export default function ForgotPasswordScreen(): React.JSX.Element {
               autoComplete="email"
               returnKeyType="go"
               onSubmitEditing={() => void handleSubmit()}
-              placeholder="ornek@mail.com"
+              placeholder={t.auth.emailPlaceholder}
             />
           </View>
 
@@ -142,12 +139,12 @@ export default function ForgotPasswordScreen(): React.JSX.Element {
               onPress={() => void handleSubmit()}
               disabled={loading}
               accessibilityRole="button"
-              accessibilityLabel="Sıfırlama bağlantısı gönder"
+              accessibilityLabel={t.auth.sendLink}
             >
               {loading ? (
                 <ActivityIndicator color={colors.textOnDark} size="small" />
               ) : (
-                <Text style={styles.primaryButtonText}>Bağlantı Gönder</Text>
+                <Text style={styles.primaryButtonText}>{t.auth.sendLink}</Text>
               )}
             </Pressable>
           </View>

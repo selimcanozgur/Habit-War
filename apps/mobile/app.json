@@ -27,11 +27,11 @@
     },
     "plugins": [
       "expo-router",
-      "expo-font"
+      "expo-font",
+      "expo-notifications"
     ],
     "extra": {
-      "apiUrl": "http://localhost:3000",
-      "devUserId": "cseedselimcan000000000000"
+      "apiUrl": "http://localhost:3000"
     }
   }
 }

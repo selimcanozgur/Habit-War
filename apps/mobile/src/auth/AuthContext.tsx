@@ -32,7 +32,6 @@ import {
   type AuthUser,
 } from '../api/auth';
 import { ApiError, setAuthHeaderProvider } from '../api/client';
-import { useTimerStore } from '../stores/timer';
 import { clearSession, loadSession, saveSession } from './storage';
 
 interface Session {
@@ -96,10 +95,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
     sessionRef.current = null;
     setSession(null);
     // Nothing of this account may outlive it on the device: the next one to sign in
-    // would otherwise see its habits, its story and its running session until each
+    // would otherwise see its books and its progress until each
     // query happened to refetch — and skip its own first-run flow on a stale profile.
     queryClient.clear();
-    useTimerStore.getState().stop();
     await clearSession();
   }, [queryClient]);
 

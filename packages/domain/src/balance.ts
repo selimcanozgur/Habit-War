@@ -1,15 +1,11 @@
 /**
  * Game balance constants — the single source of truth.
  *
- * Every number that shapes the XP economy lives here. No magic numbers anywhere
- * else in the codebase: these values will be retuned constantly during beta, and
- * a retune must be a one-file change.
+ * Every number that shapes the reading economy lives here. These values will be
+ * retuned during beta, and a retune must be a one-file change.
  *
- * Anywhere this deviates from docs/product-spec.md is marked "SPEC DEVIATION"
- * with the reason. See docs/adr/ for the longer arguments.
+ * The product rules behind them are in docs/product-v2.md.
  */
-
-import type { Category, CharacterClass, Stat, Verification } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Level curve
@@ -18,24 +14,18 @@ import type { Category, CharacterClass, Stat, Verification } from './types.js';
 /**
  * xpForLevel(n) = floor(LEVEL_BASE * n^LEVEL_EXPONENT)
  *
- * SPEC DEVIATION (§3.2). The spec used `floor(100 * n^1.6)`. Under the spec's own
- * "60 active minutes per day" assumption that curve puts level 50 at ~979,000 XP,
- * i.e. 22-45 years of play — while the same table claims "~2.5 years". The table's
- * own numbers also disagreed with its own formula (it lists 1,174 for level 5→6;
- * the formula yields 1,313).
- *
- * We inverted the problem: the spec's TIME targets are treated as the requirement,
- * and the curve parameters were fitted to them. At the reference rate of 75 XP/day:
- *   level 11 -> 29 days (target ~1 month)
- *   level 26 -> 196 days (target ~6 months)
- *   level 51 -> 854 days (target ~2.5 years)
- *   level 2  -> 30 XP, reachable in the very first session
+ * The exponent is the one fitted in docs/adr/0001-level-curve.md; only the base is
+ * rescaled for reading. At the reference rate of REFERENCE_DAILY_XP:
+ *   level 2  -> the very first day's reading
+ *   level 11 -> about a month
+ *   level 26 -> about six months
+ *   level 50 -> two to three years
  * These targets are locked down as assertions in leveling.test.ts.
  */
-export const LEVEL_BASE = 30;
+export const LEVEL_BASE = 10;
 export const LEVEL_EXPONENT = 1.15;
 
-/** Level at which Ascend (prestige) unlocks. Beyond it XP accrues but level does not. */
+/** The highest level. Beyond it XP still accrues but level does not. */
 export const MAX_LEVEL = 50;
 
 /**
@@ -45,320 +35,71 @@ export const MAX_LEVEL = 50;
 export const LEVEL_TABLE_MAX = MAX_LEVEL + 1;
 
 /**
- * The reference user used to calibrate the economy: 60 active minutes per day at
- * an average total multiplier of 1.25. Documentation and tests only — no runtime
- * logic reads this.
+ * The reference reader used to calibrate the curve: meets a 5-page goal every day,
+ * i.e. 5 page XP + the daily goal bonus. Documentation and tests only.
  */
-export const REFERENCE_DAILY_XP = 75;
+export const REFERENCE_DAILY_XP = 25;
 
 // ---------------------------------------------------------------------------
-// Prestige (Ascend)
+// Reading XP
 // ---------------------------------------------------------------------------
 
-/** Permanent XP bonus granted per Ascend. */
-export const PRESTIGE_BONUS_STEP = 0.02;
-
-/** Ceiling on the prestige bonus (10% => 5 ascensions). */
-export const PRESTIGE_BONUS_CAP = 0.1;
-
-// ---------------------------------------------------------------------------
-// Multipliers
-// ---------------------------------------------------------------------------
+/** XP for each page read. */
+export const XP_PER_PAGE = 1;
 
 /**
- * Category difficulty multiplier. The axis is how much friction the habit carries
- * (physical/cognitive effort plus avoidance), not how long it takes.
+ * Paid once per local day, the moment the day's pages reach the daily goal.
  *
- * SPEC DEVIATION (§3.1). The spec gave a 0.8-1.5 range but never assigned a value
- * to any category. The range is deliberately narrowed to 0.85-1.25: a 1.5 ceiling
- * pushes users toward whichever category pays best rather than the habit they
- * actually want, which defeats the product's own purpose.
+ * Deliberately large next to XP_PER_PAGE: consistency must beat volume. Five pages a
+ * day for ten days (250 XP) has to outrun a single 100-page binge (120 XP), or the
+ * game rewards exactly the pattern that never becomes a habit.
  */
-export const DIFFICULTY_MULTIPLIER: Readonly<Record<Category, number>> = {
-  FITNESS: 1.25,
-  STUDY: 1.15,
-  SKILL: 1.1,
-  CREATIVE: 1.05,
-  MINDFULNESS: 1.0,
-  SOCIAL: 0.95,
-  HEALTH: 0.85,
-};
-
-/** streakMultiplier = min(1 + days * STREAK_DAILY_INCREMENT, STREAK_MULTIPLIER_CAP) */
-export const STREAK_DAILY_INCREMENT = 0.01;
-export const STREAK_MULTIPLIER_CAP = 1.5;
+export const DAILY_GOAL_BONUS_XP = 20;
 
 /**
- * Focus quality multiplier, keyed on how many times the session was interrupted.
- * An "interruption" is the app being foregrounded or the timer being paused.
- * Tiers are [maxInterruptions, multiplier] in ascending order.
- *
- * SPEC DEVIATION (§3.1). The spec gave a 0.5-1.2 range but never said how it would
- * be measured. The floor is raised to 0.75 because halving XP contradicts the
- * spec's own "no punishment mechanics" principle (§10, §13).
+ * Pages per local day that earn page XP. Pages beyond it still damage the book but
+ * earn nothing — the cap is what keeps an inflated entry from buying levels.
  */
-export const FOCUS_QUALITY_TIERS: readonly (readonly [number, number])[] = [
-  [0, 1.2], // uninterrupted — the reward the spec asks for
-  [2, 1.0], // 1-2 interruptions — neutral
-  [5, 0.9], // 3-5 interruptions
-  [Number.POSITIVE_INFINITY, 0.75], // 6+
-];
+export const DAILY_PAGE_XP_CAP = 150;
 
-/** Allowed range for the event multiplier. The value comes from the SERVER, never the client. */
-export const EVENT_MULTIPLIER_MIN = 1.0;
-export const EVENT_MULTIPLIER_MAX = 2.0;
-
-/**
- * Verification multiplier — an integrity coefficient, not a reward.
- *
- * Deliberate design choice: sharing health data earns NO bonus. A bonus would make
- * granting health permissions economically coercive, which strains both KVKK's
- * "freely given consent" requirement and platform policy. All verified sources sit
- * at 1.0; only unverified manual entry is discounted.
- */
-export const VERIFICATION_MULTIPLIER: Readonly<Record<Verification, number>> = {
-  MANUAL_ENTRY: 0.3, // spec §4 Layer 1: "earns 30% XP"
-  TIMER_ONLY: 1.0,
-  HEALTH_DATA: 1.0,
-  PHOTO_PROOF: 1.0,
-  PEER_VERIFIED: 1.0,
-};
-
-/** XP bonus for sessions feeding one of the user's class stats (spec §3.3). */
-export const CLASS_BONUS = 0.1;
-
-/**
- * Ceiling on the product of all multipliers.
- *
- * SPEC DEVIATION: the spec had no such ceiling. Multiplied freely the theoretical
- * peak is 1.25 * 1.5 * 1.2 * 2.0 * 1.10 * 1.10 = 5.4x, and the spec defines further
- * modifiers elsewhere (Focus Mode +20%, equipment +5%) that were never in the
- * formula at all. Without a clamp the gap between a tuned account and an ordinary
- * one makes leaderboards meaningless.
- */
-export const TOTAL_MULTIPLIER_CAP = 3.0;
+/** Paid when a book is finished. */
+export const BOOK_FINISHED_XP = 50;
 
 // ---------------------------------------------------------------------------
-// Daily caps and duration limits
+// Goals and streaks
 // ---------------------------------------------------------------------------
+
+/** Daily goals a reader can choose, smallest first. */
+export const DAILY_GOAL_OPTIONS: readonly number[] = [5, 10, 20];
+
+export const DEFAULT_DAILY_GOAL = 10;
 
 /**
- * Per-category daily full-rate minute cap.
- *
- * SPEC FIX (§3.1 vs §4). The spec suggested "e.g. 120 min/day for reading". Seven
- * categories x 120 min is exactly 840 min = 14 hours, and §4 Layer 3 flags anomalies
- * at "> 14 hours" — so a user farming every cap to the limit would never be flagged.
- * Caps are now differentiated per category and backed by DAILY_TOTAL_CAP_MINUTES.
+ * Days that may be missed between two reading days without breaking the streak.
+ * One: missing a day is forgiven, missing two in a row is not. Research on habit
+ * formation finds a single missed day does not measurably set the habit back
+ * (Lally et al., 2010); punishing it mostly teaches people to quit.
  */
-export const DAILY_CATEGORY_CAP_MINUTES: Readonly<Record<Category, number>> = {
-  STUDY: 180,
-  SKILL: 150,
-  CREATIVE: 150,
-  FITNESS: 120,
-  SOCIAL: 120,
-  HEALTH: 90,
-  MINDFULNESS: 60,
-};
+export const STREAK_GRACE_DAYS = 1;
 
-/** Full-rate daily cap across all categories combined (6 hours). */
-export const DAILY_TOTAL_CAP_MINUTES = 360;
+/** Window, in days, for the "days read" consistency figure. */
+export const CONSISTENCY_WINDOW_DAYS = 30;
+
+/** Days of history the smaller-goal suggestion looks at. */
+export const GOAL_REVIEW_DAYS = 7;
 
 /**
- * Efficiency applied past a cap. Cutting XP to zero feels punitive (spec §3.1), so
- * XP keeps flowing at a reduced rate.
+ * A smaller goal is suggested when the goal was met on fewer than this many of the
+ * last GOAL_REVIEW_DAYS days. A goal missed most days is the wrong goal.
  */
-export const OVER_CAP_EFFICIENCY = 0.2;
-
-/**
- * Longest duration a single session can be credited for; anything beyond is clipped.
- * This bounds the "start the timer and walk away" attack.
- */
-export const MAX_SESSION_MINUTES = 240;
-
-/**
- * Pause budget for one session. A paused session is not abandoned for being slow:
- * the stale cutoff is measured in wall time and grows by this much, so a session can
- * sit paused for up to two hours on top of its maximum creditable length before the
- * sweep closes it.
- */
-export const MAX_PAUSE_MINUTES = 120;
-
-/** Wall-clock age past which a still-ACTIVE session counts as forgotten. */
-export const STALE_SESSION_MINUTES = MAX_SESSION_MINUTES + MAX_PAUSE_MINUTES;
-
-/** Shortest creditable duration. Below this a session earns nothing. */
-export const MIN_SESSION_MINUTES = 1;
-
-/**
- * Daily total that the background anomaly scan treats as suspicious.
- * SPEC DEVIATION: the spec said 14 hours. With a 6-hour full-rate cap that threshold
- * could never fire in practice, so it is lowered to 8 hours.
- */
-export const ANOMALY_DAILY_TOTAL_MINUTES = 480;
+export const GOAL_REVIEW_MIN_DAYS_MET = 4;
 
 // ---------------------------------------------------------------------------
-// Stats
+// Input limits
 // ---------------------------------------------------------------------------
 
-/**
- * XP-to-stat-point conversion.
- * SPEC GAP (§3.3): the spec calls stats "the thing that creates character identity"
- * but never defines how XP becomes stat points.
- */
-export const STAT_POINT_DIVISOR = 20;
+/** Largest page count a book may have. */
+export const MAX_BOOK_PAGES = 5000;
 
-/**
- * Default stat for a category.
- * SPEC GAP: the spec defines 7 categories (§7 enum) and 6 stats (§3.3) but never
- * maps between them; which stat HEALTH feeds was undefined.
- */
-export const CATEGORY_DEFAULT_STAT: Readonly<Record<Category, Stat>> = {
-  FITNESS: 'STR',
-  STUDY: 'INT',
-  MINDFULNESS: 'WIS',
-  CREATIVE: 'DEX',
-  SOCIAL: 'CHA',
-  HEALTH: 'WIS',
-  SKILL: 'DEX',
-};
-
-/**
- * Stats a user may pick within a category.
- * Why this exists: the spec maps "weight training -> STR" but "running -> END", and
- * both are FITNESS. Category alone cannot determine the stat, so the stat is stored
- * on the habit.
- */
-export const CATEGORY_ALLOWED_STATS: Readonly<Record<Category, readonly Stat[]>> = {
-  FITNESS: ['STR', 'END'],
-  STUDY: ['INT'],
-  MINDFULNESS: ['WIS'],
-  CREATIVE: ['DEX', 'CHA'],
-  SOCIAL: ['CHA'],
-  HEALTH: ['WIS', 'END'],
-  SKILL: ['DEX', 'INT'],
-};
-
-/**
- * Stat pairs behind each class.
- * SPEC GAP: §3.3 describes 4 classes while the §7 ClassType enum has 6 values —
- * RANGER and ARTISAN were never defined anywhere.
- */
-export const CLASS_STATS: Readonly<Record<CharacterClass, readonly [Stat, Stat]>> = {
-  SCHOLAR: ['INT', 'WIS'],
-  BERSERKER: ['STR', 'END'],
-  BARD: ['CHA', 'DEX'],
-  MONK: ['WIS', 'END'],
-  RANGER: ['END', 'DEX'],
-  ARTISAN: ['DEX', 'INT'],
-};
-
-/** Level at which the class suggestion unlocks (spec §3.3). */
-export const CLASS_UNLOCK_LEVEL = 10;
-
-// ---------------------------------------------------------------------------
-// Enumerations in fixed order (radar charts, iteration, seeding)
-// ---------------------------------------------------------------------------
-
-export const ALL_STATS: readonly Stat[] = ['STR', 'END', 'INT', 'WIS', 'CHA', 'DEX'];
-
-export const ALL_CATEGORIES: readonly Category[] = [
-  'FITNESS',
-  'STUDY',
-  'MINDFULNESS',
-  'CREATIVE',
-  'SOCIAL',
-  'HEALTH',
-  'SKILL',
-];
-
-export const ALL_CLASSES: readonly CharacterClass[] = [
-  'SCHOLAR',
-  'BERSERKER',
-  'BARD',
-  'MONK',
-  'RANGER',
-  'ARTISAN',
-];
-
-// ---------------------------------------------------------------------------
-// Task duels
-// ---------------------------------------------------------------------------
-//
-// A duel must pay better than training alone, or nobody takes the risk of one. The
-// rewards below sit ON TOP of whatever the same work earns as an ordinary session —
-// the duel is a bonus layer, never a replacement for the session economy.
-//
-// Calibration against REFERENCE_DAILY_XP (75/day): a 5-day duel done every day and
-// won pays 5 x 20 + 30 + 60 = 190 XP, about 38 XP a day, or +50% on the reference
-// day. A perfect draw pays each side 5 x 20 + 30 + 25 = 155. A loser keeps the per-day
-// XP for every day they did — losing a duel you worked at is still worth more than not
-// entering one. A duel nobody worked on pays nothing.
-
-/** XP for each duel day checked in and not disputed. Paid at check-in, reversed on dispute. */
-export const DUEL_DAY_XP = 20;
-
-/**
- * Check-ins per rolling 24 hours that earn DUEL_DAY_XP, across all of a user's duels.
- *
- * Check-ins are self-reported and only the opponent polices them, so two friends who
- * never dispute each other could mint XP. This bounds that: further check-ins still
- * score in their duels, they just pay no XP.
- */
-export const DUEL_DAILY_REWARD_LIMIT = 2;
-
-/** Settlement bonus for the winner. Requires a non-zero score: a 1-0 win is a win, 0-0 is not. */
-export const DUEL_WIN_XP = 60;
-
-/** Settlement bonus for each side of a draw — only when both actually scored. */
-export const DUEL_DRAW_XP = 25;
-
-/** Settlement bonus for checking in on every day of the duel with none disputed. */
-export const DUEL_PERFECT_XP = 30;
-
-/** Live (PENDING + ACTIVE) duels a user may be in at once. Caps the settlement bonuses above. */
-export const DUEL_MAX_LIVE = 3;
-
-/** Bounds on the task text, e.g. "50 şınav". */
-export const DUEL_TASK_MIN_LENGTH = 2;
-export const DUEL_TASK_MAX_LENGTH = 60;
-
-// ---------------------------------------------------------------------------
-// Story battles (docs/game-design.md §2–3)
-// ---------------------------------------------------------------------------
-//
-// Two economies, kept apart on purpose. XP grows the character and keeps its formula.
-// DAMAGE is the story: it comes from worked time alone — one point per active second,
-// more against the monster's weakness — so the number on the battle screen and the one
-// the server computes are the same number, and no XP multiplier blurs the fight.
-// Fights pay no XP; the session already did.
-
-/** Damage per active second against a monster's weak stat (1 elsewhere). */
-export const WEAKNESS_DAMAGE_MULTIPLIER = 1.5;
-
-/** Fights in a chapter: three against the monster, then its boss. */
-export const FIGHTS_PER_CHAPTER = 4;
-
-/** Each fight's length as a multiple of its chapter's base minutes; the last is the boss. */
-export const FIGHT_TIME_MULTIPLIERS: readonly number[] = [1, 1.5, 2, 4];
-
-/** Base fight length of the first and the last chapter, in minutes; linear between. */
-export const STORY_FIRST_BASE_MINUTES = 5;
-export const STORY_LAST_BASE_MINUTES = 45;
-
-// ---------------------------------------------------------------------------
-// Count habits
-// ---------------------------------------------------------------------------
-//
-// A count habit ("50 şınav", "8 bardak su") is logged in quick taps rather than timed.
-// Each log is scored as the ordinary session it is worth, so the whole economy — the
-// category's difficulty, streak, season, daily caps, and the monster it hits — applies
-// unchanged. What it is worth: reaching the day's target counts as a session of
-// COUNT_TARGET_MINUTES, and logging past the target earns nothing more. That bound is
-// the anti-cheat: nobody counts the taps, so no amount of tapping can mint more than
-// one short session's worth a day per habit.
-
-/** Minutes of credit for reaching a count habit's daily target. */
-export const COUNT_TARGET_MINUTES = 15;
-
-/** Largest daily target a count habit may set — "1000 şınav" would be a typo or a lie. */
-export const COUNT_TARGET_MAX = 500;
+/** Largest number of pages one log may record. */
+export const MAX_PAGES_PER_LOG = 1000;

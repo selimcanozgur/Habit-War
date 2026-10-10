@@ -16,7 +16,6 @@
  * is why nothing below is repeated in a StyleSheet.
  */
 
-import type { Stat } from '@habitwar/domain';
 import { StyleSheet } from 'react-native';
 
 export const colors = {
@@ -87,51 +86,6 @@ export const colors = {
   dangerDark: '#9A3423',
   dangerSoft: '#F7DFDA',
 } as const;
-
-/**
- * Stat colours.
- *
- * Fixed per stat so a stat keeps one identity everywhere it appears — the bar on the
- * profile, the disc on a habit row, the chip in a session reward.
- */
-export const statColors: Readonly<Record<Stat, string>> = {
-  STR: '#C4452F',
-  END: '#E37537',
-  INT: '#2072BB',
-  WIS: '#30AF29',
-  CHA: '#C44E8E',
-  DEX: '#9400FF',
-};
-
-export const statLabels: Readonly<Record<Stat, string>> = {
-  STR: 'Güç',
-  END: 'Dayanıklılık',
-  INT: 'Zekâ',
-  WIS: 'Bilgelik',
-  CHA: 'Karizma',
-  DEX: 'Beceri',
-};
-
-/** Habit category to the colour of its disc. */
-export const categoryColors: Readonly<Record<string, string>> = {
-  FITNESS: '#C4452F',
-  STUDY: '#2072BB',
-  MINDFULNESS: '#30AF29',
-  CREATIVE: '#9400FF',
-  SOCIAL: '#E37537',
-  HEALTH: '#C44E8E',
-  SKILL: '#8F6A00',
-};
-
-export const categoryLabels: Readonly<Record<string, string>> = {
-  FITNESS: 'Spor',
-  STUDY: 'Ders',
-  MINDFULNESS: 'Zihin',
-  CREATIVE: 'Yaratıcılık',
-  SOCIAL: 'Sosyal',
-  HEALTH: 'Sağlık',
-  SKILL: 'Beceri',
-};
 
 export const spacing = {
   xs: 4,
