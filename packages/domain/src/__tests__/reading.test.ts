@@ -11,6 +11,9 @@ import {
   bookProgress,
   clampPagesToBook,
   daysReadInWindow,
+  estimateDaysToFinish,
+  pagesPerDayToFinish,
+  phaseCrossed,
   scoreReadingLog,
   suggestSmallerGoal,
 } from '../reading.js';
@@ -138,5 +141,50 @@ describe('suggestSmallerGoal', () => {
 
   it('has nothing to offer below the smallest option', () => {
     expect(suggestSmallerGoal(DAILY_GOAL_OPTIONS[0] as number, 0)).toBeNull();
+  });
+});
+
+describe('phaseCrossed', () => {
+  it('reports the quarter a log crosses', () => {
+    expect(phaseCrossed(20, 30, 100)).toBe(0.25);
+    expect(phaseCrossed(45, 50, 100)).toBe(0.5);
+  });
+
+  it('reports nothing inside a quarter', () => {
+    expect(phaseCrossed(26, 40, 100)).toBeNull();
+  });
+
+  it('reports the higher threshold when a log jumps two', () => {
+    expect(phaseCrossed(10, 60, 100)).toBe(0.5);
+  });
+
+  it('leaves the finishing log to the finish moment', () => {
+    expect(phaseCrossed(70, 100, 100)).toBeNull();
+  });
+});
+
+describe('estimateDaysToFinish', () => {
+  it('projects the recent pace, rounding up', () => {
+    expect(estimateDaysToFinish(100, 10)).toBe(10);
+    expect(estimateDaysToFinish(101, 10)).toBe(11);
+  });
+
+  it('has no estimate without a pace', () => {
+    expect(estimateDaysToFinish(100, 0)).toBeNull();
+  });
+
+  it('is zero for a finished book', () => {
+    expect(estimateDaysToFinish(0, 0)).toBe(0);
+  });
+});
+
+describe('pagesPerDayToFinish', () => {
+  it('spreads the remaining pages over the days left', () => {
+    expect(pagesPerDayToFinish(90, 10)).toBe(9);
+    expect(pagesPerDayToFinish(91, 10)).toBe(10);
+  });
+
+  it('treats the last day as one day, not zero', () => {
+    expect(pagesPerDayToFinish(30, 0)).toBe(30);
   });
 });

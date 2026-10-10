@@ -60,6 +60,8 @@ model User {
   /// Local day (YYYY-MM-DD) the last reminder went out. Makes the reminder job
   /// idempotent: at most one per local day, however often it runs.
   lastRemindedDate String? @db.VarChar(10)
+  /// Books to finish this calendar year. Null means no yearly goal.
+  yearlyBookGoal   Int?
 
   // --- Progression -------------------------------------------------------------
   /// Total XP. A cache of XpLedger, which remains the source of truth.
@@ -108,12 +110,22 @@ model Book {
   title     String  @db.VarChar(200)
   author    String? @db.VarChar(200)
   pageCount Int
+  /// Cover image from the book search. Display only.
+  coverUrl  String? @db.VarChar(500)
 
   /// Pages logged against this book. Never exceeds pageCount.
   pagesRead Int @default(0)
 
   status     BookStatus @default(READING)
   finishedAt DateTime?
+
+  // --- The reader's verdict, written once the book is finished -------------
+  /// 1-5 stars.
+  rating    Int?
+  /// One line about the book.
+  review    String?  @db.VarChar(280)
+  /// Up to MAX_TAKEAWAYS things the reader wants to remember from it.
+  takeaways String[] @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -140,6 +152,9 @@ model ReadingLog {
 
   /// Pages recorded, after clamping to what was left of the book.
   pages Int
+
+  /// What stayed with the reader from this session, in their own words. Optional.
+  note String? @db.VarChar(280)
 
   /// The user's local day (YYYY-MM-DD) when the log was written.
   dateKey String @db.VarChar(10)

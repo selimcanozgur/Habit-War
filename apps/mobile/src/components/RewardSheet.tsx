@@ -8,6 +8,7 @@
  */
 
 import { DAILY_GOAL_BONUS_XP } from '@habitwar/domain';
+import { router } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 
 import type { LogResult } from '../api/reading';
@@ -53,6 +54,9 @@ export function RewardSheet({ result, onClose }: RewardSheetProps): React.JSX.El
             {result.book.progress.defeated ? (
               <Moment icon="trophy" tint={colors.goldDark} text={t.reward.bookDefeated(result.book.title)} />
             ) : null}
+            {result.phase !== null ? (
+              <Moment icon="swords" tint={colors.danger} text={t.phase(result.phase)} />
+            ) : null}
             {result.score.goalReachedNow ? (
               <Moment
                 icon="check-circle-filled"
@@ -62,7 +66,21 @@ export function RewardSheet({ result, onClose }: RewardSheetProps): React.JSX.El
             ) : null}
             <Moment icon="flame-filled" tint={colors.fire} text={t.reward.streak(result.streak.current)} />
           </View>
-          <Button label={t.common.continue} onPress={onClose} />
+          {result.book.progress.defeated ? (
+            <Button
+              label={t.reward.seeVictory}
+              tone="xp"
+              onPress={() => {
+                onClose();
+                router.push(`/book/${result.book.id}`);
+              }}
+            />
+          ) : null}
+          <Button
+            label={t.common.continue}
+            tone={result.book.progress.defeated ? 'neutral' : 'primary'}
+            onPress={onClose}
+          />
         </>
       ) : null}
     </Sheet>

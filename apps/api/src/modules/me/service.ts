@@ -13,7 +13,7 @@ import {
 } from '@habitwar/domain';
 import type { DevicePlatform, Locale, PrismaClient, User } from '@prisma/client';
 
-import { addDays } from '../../lib/calendar.js';
+import { addDays, startOfLocalDay } from '../../lib/calendar.js';
 import { conflict } from '../../lib/errors.js';
 import { definedOnly } from '../../lib/objects.js';
 import { softDeleteUser } from '../users/service.js';
@@ -40,6 +40,12 @@ export interface Profile {
   readonly xp: number;
   readonly progress: LevelProgress;
   readonly streak: { readonly current: number; readonly longest: number };
+  readonly yearly: {
+    readonly year: number;
+    readonly goal: number | null;
+    /** Books finished since 1 January in the user's timezone. */
+    readonly finished: number;
+  };
   readonly stats: {
     readonly totalPages: number;
     readonly booksFinished: number;
@@ -62,9 +68,13 @@ export class MeService {
     const user = await this.#prisma.user.findUniqueOrThrow({ where: { id: userId } });
     const today = localDateKey(this.#now(), user.timezone);
 
-    const [pages, booksFinished, days] = await Promise.all([
+    const year = Number(today.slice(0, 4));
+    const yearStart = startOfLocalDay(`${year}-01-01`, user.timezone);
+
+    const [pages, booksFinished, finishedThisYear, days] = await Promise.all([
       this.#prisma.readingLog.aggregate({ where: { userId }, _sum: { pages: true } }),
       this.#prisma.book.count({ where: { userId, status: 'FINISHED' } }),
+      this.#prisma.book.count({ where: { userId, status: 'FINISHED', finishedAt: { gte: yearStart } } }),
       this.#prisma.readingLog.groupBy({
         by: ['dateKey'],
         where: { userId, dateKey: { gte: addDays(today, -(CONSISTENCY_WINDOW_DAYS - 1)) } },
@@ -92,6 +102,7 @@ export class MeService {
         ),
         longest: user.longestStreak,
       },
+      yearly: { year, goal: user.yearlyBookGoal, finished: finishedThisYear },
       stats: {
         totalPages: pages._sum.pages ?? 0,
         booksFinished,
@@ -114,6 +125,7 @@ export class MeService {
           dailyGoal: input.dailyGoal,
         }),
         ...(input.reminderTime !== undefined ? { reminderTime: input.reminderTime } : {}),
+        ...(input.yearlyBookGoal !== undefined ? { yearlyBookGoal: input.yearlyBookGoal } : {}),
         ...this.#goalClock(user, input.dailyGoal),
       },
     });

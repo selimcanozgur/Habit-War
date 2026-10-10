@@ -8,6 +8,7 @@
 
 import {
   BOOK_FINISHED_XP,
+  BOOK_PHASES,
   CONSISTENCY_WINDOW_DAYS,
   DAILY_GOAL_BONUS_XP,
   DAILY_GOAL_OPTIONS,
@@ -113,4 +114,37 @@ export function suggestSmallerGoal(currentGoal: number, daysGoalMet: number): nu
   if (daysGoalMet >= GOAL_REVIEW_MIN_DAYS_MET) return null;
   const smaller = DAILY_GOAL_OPTIONS.filter((option) => option < currentGoal);
   return smaller.length > 0 ? (smaller[smaller.length - 1] as number) : null;
+}
+
+/**
+ * The phase threshold a log crossed, or null. A log that jumps past two thresholds
+ * reports the higher one: one moment per log, and the bigger one is the true one.
+ * Finishing the book is its own moment, so a log that finishes reports no phase.
+ */
+export function phaseCrossed(pagesBefore: number, pagesAfter: number, pageCount: number): number | null {
+  if (pagesAfter >= pageCount) return null;
+  const before = pagesBefore / pageCount;
+  const after = pagesAfter / pageCount;
+  let crossed: number | null = null;
+  for (const threshold of BOOK_PHASES) {
+    if (before < threshold && after >= threshold) crossed = threshold;
+  }
+  return crossed;
+}
+
+/**
+ * Days until a book is finished at the reader's recent pace, or null when there is
+ * no recent pace to project from. Rounded up: a book with one page left after the
+ * last full day still takes a day.
+ */
+export function estimateDaysToFinish(pagesLeft: number, recentPagesPerDay: number): number | null {
+  if (pagesLeft <= 0) return 0;
+  if (!(recentPagesPerDay > 0)) return null;
+  return Math.ceil(pagesLeft / recentPagesPerDay);
+}
+
+/** Pages a day needed to finish within `daysLeft` days, today included. */
+export function pagesPerDayToFinish(pagesLeft: number, daysLeft: number): number {
+  if (pagesLeft <= 0) return 0;
+  return Math.ceil(pagesLeft / Math.max(1, daysLeft));
 }

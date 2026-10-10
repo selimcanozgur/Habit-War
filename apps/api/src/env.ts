@@ -77,6 +77,9 @@ const schema = z
      */
     CORS_ORIGINS: z.string().optional(),
 
+    /** Raises the Google Books quota for book search. Search works without it. */
+    GOOGLE_BOOKS_API_KEY: z.string().min(1).optional(),
+
 
   })
   .superRefine((env, ctx) => {

@@ -61,6 +61,7 @@ const tr = {
   log: {
     title: 'Kaç sayfa okudun?',
     pagesLabel: 'Sayfa',
+    noteLabel: 'Aklında kalan bir cümle? (isteğe bağlı)',
     invalid: 'En az 1 sayfa gir.',
     save: 'Kaydet',
     finishedConflict: 'Bu kitap zaten bitmiş.',
@@ -72,6 +73,7 @@ const tr = {
     bookDefeated: (title: string) => `${title} yenildi! Kupa rafına eklendi.`,
     levelUp: (level: number) => `Seviye ${level}!`,
     streak: (days: number) => `${days} günlük seri`,
+    seeVictory: 'Zafer kartını gör',
   },
 
   shelf: {
@@ -130,6 +132,59 @@ const tr = {
     bookBody: 'İlk düşmanını ekle. Sayfa sayısı onun canı olacak.',
     finish: 'Bitir',
     skip: 'Bu adımı atla',
+  },
+
+  forecast: {
+    days: (days: number) => `Bu hızla ${days} günde bitirirsin`,
+    monthEnd: (pages: number) => `Ay sonuna bitirmek için günde ${pages} sayfa`,
+    noPace: 'Birkaç gün okuyunca ne zaman bitireceğini göstereceğiz.',
+  },
+
+  phase: (threshold: number): string =>
+    threshold >= 0.75
+      ? 'Son çeyrek! Düşman can çekişiyor.'
+      : threshold >= 0.5
+        ? 'Kitap yarıya indi, öfkelendi!'
+        : 'Düşmanın dörtte biri gitti!',
+
+  search: {
+    label: 'Kitap ara',
+    placeholder: 'Kitap adı veya yazar',
+    searching: 'Aranıyor…',
+    noResults: 'Bulunamadı. Bilgileri aşağıya kendin yazabilirsin.',
+    pagesUnknown: 'sayfa sayısı yok',
+  },
+
+  detail: {
+    victoryOverline: 'ZAFER KARTI',
+    progressOverline: 'İLERLEME',
+    daysSpent: 'Sürdü',
+    days: (days: number) => `${days} gün`,
+    pagesPerDay: 'Günde ortalama',
+    daysRead: 'Okunan gün',
+    rating: 'Puanın',
+    review: 'Tek cümleyle bu kitap',
+    takeaways: 'Aklında kalan 3 şey',
+    saved: 'Kaydedildi',
+    share: 'Paylaş',
+    shareText: (title: string, days: number, rating: number | null) =>
+      `"${title}" kitabını ${days} günde bitirdim${rating ? ` (${'★'.repeat(rating)})` : ''}. Habit War ile okuyorum.`,
+    notesOverline: 'NOTLARIN',
+    noNotes: 'Sayfa girerken aklında kalanları yazarsan burada birikir.',
+    edit: 'Düzenle',
+  },
+
+  calendar: {
+    overline: 'OKUMA TAKVİMİ',
+    less: 'Az',
+    more: 'Çok',
+  },
+
+  yearly: {
+    overline: (year: number) => `${year} HEDEFİ`,
+    progress: (finished: number, goal: number) => `${finished} / ${goal} kitap`,
+    setting: 'Yıllık kitap hedefi',
+    option: (books: number) => `${books} kitap`,
   },
 
   auth: {
@@ -226,6 +281,7 @@ const en: Strings = {
   log: {
     title: 'How many pages did you read?',
     pagesLabel: 'Pages',
+    noteLabel: 'A line that stayed with you? (optional)',
     invalid: 'Enter at least 1 page.',
     save: 'Save',
     finishedConflict: 'This book is already finished.',
@@ -237,6 +293,7 @@ const en: Strings = {
     bookDefeated: (title) => `${title} defeated! Added to your trophies.`,
     levelUp: (level) => `Level ${level}!`,
     streak: (days) => `${days}-day streak`,
+    seeVictory: 'See your victory card',
   },
 
   shelf: {
@@ -294,6 +351,59 @@ const en: Strings = {
     bookBody: 'Add your first enemy. Its page count is its health.',
     finish: 'Finish',
     skip: 'Skip for now',
+  },
+
+  forecast: {
+    days: (days) => (days === 1 ? 'At this pace you finish tomorrow' : `At this pace you finish in ${days} days`),
+    monthEnd: (pages) => `${pages} pages a day finishes it by month end`,
+    noPace: 'Read for a few days and we will show when you will finish.',
+  },
+
+  phase: (threshold) =>
+    threshold >= 0.75
+      ? 'Final quarter! The enemy is on its last legs.'
+      : threshold >= 0.5
+        ? 'Halfway down. The book is furious!'
+        : 'A quarter of the enemy is gone!',
+
+  search: {
+    label: 'Search books',
+    placeholder: 'Title or author',
+    searching: 'Searching…',
+    noResults: 'Nothing found. You can type the details in below.',
+    pagesUnknown: 'no page count',
+  },
+
+  detail: {
+    victoryOverline: 'VICTORY CARD',
+    progressOverline: 'PROGRESS',
+    daysSpent: 'Took',
+    days: (days) => (days === 1 ? '1 day' : `${days} days`),
+    pagesPerDay: 'Average per day',
+    daysRead: 'Days read',
+    rating: 'Your rating',
+    review: 'This book in one line',
+    takeaways: '3 things you want to remember',
+    saved: 'Saved',
+    share: 'Share',
+    shareText: (title, days, rating) =>
+      `I finished "${title}" in ${days} days${rating ? ` (${'★'.repeat(rating)})` : ''}. Reading with Habit War.`,
+    notesOverline: 'YOUR NOTES',
+    noNotes: 'Write what stays with you when you log pages, and it collects here.',
+    edit: 'Edit',
+  },
+
+  calendar: {
+    overline: 'READING CALENDAR',
+    less: 'Less',
+    more: 'More',
+  },
+
+  yearly: {
+    overline: (year) => `${year} GOAL`,
+    progress: (finished, goal) => `${finished} / ${goal} books`,
+    setting: 'Yearly book goal',
+    option: (books) => `${books} books`,
   },
 
   auth: {

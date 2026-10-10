@@ -53,16 +53,44 @@ interface SeedBook {
   readonly title: string;
   readonly author: string;
   readonly pageCount: number;
+  readonly coverUrl: string;
   /** When it was added to the shelf. */
   readonly addedDaysAgo: number;
 }
 
 /** Read in order: pages roll over into the next book once one is finished. */
 const BOOKS: readonly SeedBook[] = [
-  { title: 'Simyacı', author: 'Paulo Coelho', pageCount: 188, addedDaysAgo: 21 },
-  { title: 'Suç ve Ceza', author: 'Fyodor Dostoyevski', pageCount: 687, addedDaysAgo: 10 },
-  { title: 'Küçük Prens', author: 'Antoine de Saint-Exupéry', pageCount: 96, addedDaysAgo: 3 },
+  {
+    title: 'Simyacı',
+    author: 'Paulo Coelho',
+    pageCount: 188,
+    coverUrl: 'https://covers.openlibrary.org/b/id/12296155-M.jpg',
+    addedDaysAgo: 21,
+  },
+  {
+    title: 'Suç ve Ceza',
+    author: 'Fyodor Dostoyevski',
+    pageCount: 687,
+    coverUrl: 'https://covers.openlibrary.org/b/id/10736127-M.jpg',
+    addedDaysAgo: 10,
+  },
+  {
+    title: 'Küçük Prens',
+    author: 'Antoine de Saint-Exupéry',
+    pageCount: 96,
+    coverUrl: 'https://covers.openlibrary.org/b/id/12219639-M.jpg',
+    addedDaysAgo: 3,
+  },
 ];
+
+/** Notes the reader wrote, by index into DAILY_PAGES. */
+const DAILY_NOTES: Readonly<Record<number, string>> = {
+  0: 'Santiago rüyasının peşine düşüyor. Başlangıç sade ama sarıcı.',
+  6: '"Bir şeyi gerçekten istediğinde bütün evren onu gerçekleştirmek için işbirliği yapar."',
+  11: 'Simyacıyla karşılaşma sahnesi kitabın en güzel yeri.',
+  17: "Raskolnikov'un iç sesi yorucu ama bırakamıyorum.",
+  20: "Marmeladov'un meyhanedeki konuşması çok etkileyici.",
+};
 
 /**
  * Pages read per day, oldest first, ending today. Zeros are missed days: the pair
@@ -94,6 +122,7 @@ async function main(): Promise<void> {
       dailyGoal: 10,
       goalSetAt: daysAgo(startedDaysAgo),
       reminderTime: '21:00',
+      yearlyBookGoal: 12,
       onboardedAt: daysAgo(startedDaysAgo),
       createdAt: daysAgo(startedDaysAgo),
     },
@@ -108,6 +137,7 @@ async function main(): Promise<void> {
           title: book.title,
           author: book.author,
           pageCount: book.pageCount,
+          coverUrl: book.coverUrl,
           createdAt: daysAgo(book.addedDaysAgo),
         },
       }),
@@ -120,6 +150,7 @@ async function main(): Promise<void> {
     const day = startedDaysAgo - index;
     const reading = new ReadingService({ prisma, now: () => daysAgo(day) });
     let remaining = pagesForDay;
+    let note: string | null = DAILY_NOTES[index] ?? null;
     while (remaining > 0 && bookIndex < books.length) {
       const book = books[bookIndex];
       if (!book) break;
@@ -128,11 +159,30 @@ async function main(): Promise<void> {
         bookId: book.id,
         pages: remaining,
         clientRequestId: randomUUID(),
+        note,
       });
+      note = null;
       logs += 1;
       remaining -= result.pages;
       if (result.book.progress.defeated) bookIndex += 1;
     }
+  }
+
+  // The verdict on the finished book, as the reader would write it on its card.
+  const [finished] = books;
+  if (finished) {
+    await prisma.book.update({
+      where: { id: finished.id },
+      data: {
+        rating: 5,
+        review: 'Kısa, sade ve insanın içini açan bir kitap.',
+        takeaways: [
+          'Bir şeyi gerçekten istediğinde yola çıkmak gerekir.',
+          'Yolculuğun kendisi de hazinenin bir parçası.',
+          'İşaretleri okumayı öğren.',
+        ],
+      },
+    });
   }
 
   const seeded = await prisma.user.findUniqueOrThrow({ where: { id: reader.id } });

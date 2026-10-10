@@ -3,26 +3,28 @@
  *
  * The bar drains as the reader logs pages, which is the whole visual promise of the
  * app — the fight is the book itself, so the bar can never show anything but real
- * progress.
+ * progress. Tapping the book opens it in full (app/(tabs)/book/[id].tsx).
  */
 
+import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import type { Book } from '../api/reading';
+import type { Book, BookForecast } from '../api/reading';
 import { formatDate, useLanguage, useT } from '../i18n';
 import { colors, radius, spacing, type } from '../theme';
+import { BookCover } from './BookCover';
 import { cardStyle } from './Button';
 import { Icon } from './Icon';
 
 export interface BookCardProps {
   readonly book: Book;
+  /** Shown under the health bar when present. */
+  readonly forecast?: BookForecast | undefined;
   /** Shown on a book still being read. */
   readonly onLog?: () => void;
-  /** Opens the edit sheet. */
-  readonly onEdit?: () => void;
 }
 
-export function BookCard({ book, onLog, onEdit }: BookCardProps): React.JSX.Element {
+export function BookCard({ book, forecast, onLog }: BookCardProps): React.JSX.Element {
   const t = useT();
   const lang = useLanguage((state) => state.lang);
   const { progress } = book;
@@ -31,18 +33,12 @@ export function BookCard({ book, onLog, onEdit }: BookCardProps): React.JSX.Elem
   return (
     <View style={styles.card}>
       <Pressable
-        onPress={onEdit}
-        disabled={!onEdit}
-        style={styles.header}
-        accessibilityRole={onEdit ? 'button' : undefined}
+        onPress={() => router.push(`/book/${book.id}`)}
+        style={({ pressed }) => [styles.header, pressed && styles.pressed]}
+        accessibilityRole="button"
+        accessibilityLabel={book.title}
       >
-        <View style={[styles.emblem, progress.defeated && styles.emblemDefeated]}>
-          <Icon
-            name={progress.defeated ? 'trophy' : 'shelf'}
-            size={22}
-            color={progress.defeated ? colors.goldDark : colors.accent}
-          />
-        </View>
+        <BookCover uri={book.coverUrl} width={48} finished={progress.defeated} />
         <View style={styles.titles}>
           <Text style={styles.title} numberOfLines={2}>
             {book.title}
@@ -52,15 +48,16 @@ export function BookCard({ book, onLog, onEdit }: BookCardProps): React.JSX.Elem
               {book.author}
             </Text>
           ) : null}
+          {progress.defeated ? (
+            <Text style={styles.finished}>
+              {book.finishedAt ? t.book.finishedOn(formatDate(book.finishedAt, lang)) : t.book.defeated}
+            </Text>
+          ) : null}
         </View>
-        {onEdit ? <Icon name="edit" size={18} color={colors.textFaint} /> : null}
+        <Icon name="chevron-right" size={18} color={colors.textFaint} />
       </Pressable>
 
-      {progress.defeated ? (
-        <Text style={styles.finished}>
-          {book.finishedAt ? t.book.finishedOn(formatDate(book.finishedAt, lang)) : t.book.defeated}
-        </Text>
-      ) : (
+      {progress.defeated ? null : (
         <>
           <View
             style={styles.track}
@@ -73,6 +70,7 @@ export function BookCard({ book, onLog, onEdit }: BookCardProps): React.JSX.Elem
             <Text style={styles.hp}>{t.book.hpLeft(progress.hp)}</Text>
             <Text style={styles.count}>{t.book.progress(book.pagesRead, book.pageCount)}</Text>
           </View>
+          {forecast ? <ForecastLine forecast={forecast} /> : null}
           {onLog ? (
             <Pressable
               onPress={onLog}
@@ -89,19 +87,25 @@ export function BookCard({ book, onLog, onEdit }: BookCardProps): React.JSX.Elem
   );
 }
 
+/** "At this pace you finish in N days", or the month-end target when there is no pace yet. */
+export function ForecastLine({ forecast }: { forecast: BookForecast }): React.JSX.Element {
+  const t = useT();
+  return (
+    <View style={styles.forecast}>
+      <Icon name="clock" size={15} color={colors.textMuted} />
+      <Text style={styles.forecastText}>
+        {forecast.daysToFinish !== null
+          ? t.forecast.days(forecast.daysToFinish)
+          : t.forecast.monthEnd(forecast.pagesPerDayForMonthEnd)}
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   card: { ...cardStyle, gap: spacing.sm + 2 },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  emblem: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
-    backgroundColor: colors.accentSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emblemDefeated: { backgroundColor: colors.goldSoft },
-  titles: { flex: 1 },
+  titles: { flex: 1, gap: 2 },
   title: { ...type.heading, color: colors.text },
   author: { ...type.caption, color: colors.textMuted },
   track: {
@@ -115,6 +119,8 @@ const styles = StyleSheet.create({
   hp: { ...type.label, color: colors.dangerDark },
   count: { ...type.caption, color: colors.textFaint, fontVariant: ['tabular-nums'] },
   finished: { ...type.caption, color: colors.goldDark },
+  forecast: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  forecastText: { ...type.caption, color: colors.textMuted, flex: 1 },
   logButton: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -14,6 +14,7 @@ import corsPlugin from './plugins/cors.js';
 import prismaPlugin from './plugins/prisma.js';
 import rateLimitPlugin from './plugins/rate-limit.js';
 import securityHeadersPlugin from './plugins/security-headers.js';
+import { searchBooks, type BookSearchResult } from './lib/book-search.js';
 import { bookRoutes } from './modules/books/routes.js';
 import { healthRoutes } from './modules/health/routes.js';
 import { meRoutes } from './modules/me/routes.js';
@@ -28,6 +29,8 @@ const API_PREFIX = '/v1';
 export interface BuildServerOptions {
   /** Auth overrides. Tests inject stub token/identity resolvers here. */
   readonly auth?: Omit<AuthPluginOptions, 'env'>;
+  /** Book search override. Tests inject a stub so they never call the real provider. */
+  readonly bookSearch?: (query: string) => Promise<BookSearchResult[]>;
 }
 
 export async function buildServer(
@@ -64,7 +67,10 @@ export async function buildServer(
   // Every module below registers its own requireUser preHandler, so order carries no
   // authorisation meaning — it is grouped by concern for readability only.
   await app.register(meRoutes, { prefix: API_PREFIX });
-  await app.register(bookRoutes, { prefix: API_PREFIX });
+  await app.register(bookRoutes, {
+    prefix: API_PREFIX,
+    search: options.bookSearch ?? ((query) => searchBooks(query, { apiKey: env.GOOGLE_BOOKS_API_KEY })),
+  });
   await app.register(readingRoutes, { prefix: API_PREFIX });
 
   return app;

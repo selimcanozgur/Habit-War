@@ -46,6 +46,9 @@ const EXPECTED = [
   'DELETE /v1/books/:id',
   'POST /v1/books/:id/logs',
   'GET /v1/today',
+  'GET /v1/calendar',
+  'GET /v1/books/search',
+  'GET /v1/books/:id',
 ];
 
 describe('route registration', () => {

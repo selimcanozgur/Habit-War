@@ -111,7 +111,7 @@ export default function TodayScreen(): React.JSX.Element {
               ) : (
                 <>
                   {today.books.map((book) => (
-                    <BookCard key={book.id} book={book} onLog={() => setLoggingBook(book)} />
+                    <BookCard key={book.id} book={book} forecast={book.forecast} onLog={() => setLoggingBook(book)} />
                   ))}
                   <Button label={t.today.addBook} tone="neutral" onPress={() => setAddingBook(true)} />
                 </>

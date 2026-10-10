@@ -27,6 +27,8 @@ export const updateMeBody = z
     locale: locale.optional(),
     dailyGoal: dailyGoal.optional(),
     reminderTime: reminderTime.optional(),
+    /** Books to finish this year; null turns the yearly goal off. */
+    yearlyBookGoal: z.number().int().min(1).max(365).nullable().optional(),
   })
   .refine((body) => Object.values(body).some((value) => value !== undefined), {
     message: 'Nothing to update',

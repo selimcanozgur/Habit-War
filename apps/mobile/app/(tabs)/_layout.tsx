@@ -91,6 +91,8 @@ export default function TabsLayout(): React.JSX.Element {
         name="profile"
         options={{ title: t.tabs.profile, tabBarIcon: tabIcon('profile', 'profile-filled') }}
       />
+      {/* A book in full, reached from any book card. `href: null` keeps it off the tab bar. */}
+      <Tabs.Screen name="book/[id]" options={{ href: null }} />
     </Tabs>
   );
 }

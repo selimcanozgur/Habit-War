@@ -15,14 +15,17 @@ import { cardStyle } from '../../src/components/Button';
 import { Group } from '../../src/components/Group';
 import { Icon } from '../../src/components/Icon';
 import { OptionPills } from '../../src/components/OptionPills';
+import { ReadingCalendar } from '../../src/components/ReadingCalendar';
 import { ScreenHero } from '../../src/components/ScreenHero';
 import { XpBar } from '../../src/components/XpBar';
 import { confirmDestructive } from '../../src/confirm';
 import { toServerLocale, useLanguage, useT, type Lang } from '../../src/i18n';
 import { REMINDER_TIMES } from '../../src/push';
-import { colors, spacing, type } from '../../src/theme';
+import { colors, radius, spacing, type } from '../../src/theme';
 
 const LANGUAGES: readonly Lang[] = ['tr', 'en'];
+/** Yearly goals offered: none, one every two months, monthly, two a month, weekly. */
+const YEARLY_GOALS: readonly (number | null)[] = [null, 6, 12, 24, 52];
 const LANGUAGE_NAMES: Readonly<Record<Lang, string>> = { tr: 'Türkçe', en: 'English' };
 
 export default function ProfileScreen(): React.JSX.Element {
@@ -54,7 +57,7 @@ export default function ProfileScreen(): React.JSX.Element {
     );
   }
 
-  const { progress, stats, streak } = profile;
+  const { progress, stats, streak, yearly } = profile;
 
   function changeLanguage(next: Lang): void {
     setLang(next);
@@ -90,6 +93,20 @@ export default function ProfileScreen(): React.JSX.Element {
           </Text>
         </View>
 
+        {yearly.goal !== null ? (
+          <View style={styles.card}>
+            <Text style={styles.overlineInCard}>{t.yearly.overline(yearly.year)}</Text>
+            <Text style={styles.statValue}>{t.yearly.progress(yearly.finished, yearly.goal)}</Text>
+            <View style={styles.track}>
+              <View
+                style={[styles.fill, { width: `${Math.min(100, (yearly.finished / yearly.goal) * 100)}%` }]}
+              />
+            </View>
+          </View>
+        ) : null}
+
+        <ReadingCalendar />
+
         <Text style={styles.overline}>{t.profile.statsOverline}</Text>
         <View style={styles.statsGrid}>
           <Stat label={t.profile.totalPages} value={String(stats.totalPages)} />
@@ -109,6 +126,15 @@ export default function ProfileScreen(): React.JSX.Element {
             value={profile.dailyGoal}
             onChange={(dailyGoal) => update.mutate({ dailyGoal })}
             format={(option) => t.common.pages(option)}
+          />
+        </View>
+        <View style={styles.card}>
+          <Text style={styles.settingLabel}>{t.yearly.setting}</Text>
+          <OptionPills
+            options={YEARLY_GOALS}
+            value={yearly.goal}
+            onChange={(yearlyBookGoal) => update.mutate({ yearlyBookGoal })}
+            format={(option) => (option === null ? t.profile.reminderOff : t.yearly.option(option))}
           />
         </View>
         <View style={styles.card}>
@@ -180,6 +206,9 @@ const styles = StyleSheet.create({
   card: { ...cardStyle, gap: spacing.sm },
   caption: { ...type.caption, color: colors.textMuted },
   overline: { ...type.overline, color: colors.textFaint, marginTop: spacing.sm },
+  overlineInCard: { ...type.overline, color: colors.textFaint },
+  track: { height: 10, borderRadius: radius.pill, backgroundColor: colors.surfaceSunken, overflow: 'hidden' },
+  fill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.gold },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   stat: { flexBasis: '45%', flexGrow: 1 },
   statValue: { ...type.title, color: colors.text, fontVariant: ['tabular-nums'] },

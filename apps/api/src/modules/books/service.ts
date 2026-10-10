@@ -44,6 +44,7 @@ export class BookService {
         title: input.title,
         author: input.author ?? null,
         pageCount: input.pageCount,
+        coverUrl: input.coverUrl ?? null,
       },
     });
     return toBookView(book);
@@ -71,8 +72,12 @@ export class BookService {
     const updated = await this.#prisma.book.update({
       where: { id: book.id },
       data: {
-        ...definedOnly({ title: input.title, pageCount: input.pageCount }),
+        ...definedOnly({ title: input.title, pageCount: input.pageCount, takeaways: input.takeaways }),
+        // Nullable fields: undefined leaves them alone, null clears them.
         ...(input.author !== undefined ? { author: input.author } : {}),
+        ...(input.coverUrl !== undefined ? { coverUrl: input.coverUrl } : {}),
+        ...(input.rating !== undefined ? { rating: input.rating } : {}),
+        ...(input.review !== undefined ? { review: input.review || null } : {}),
         ...(finishesNow ? { status: 'FINISHED' as const, finishedAt: this.#now() } : {}),
       },
     });

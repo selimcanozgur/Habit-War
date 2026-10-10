@@ -33,6 +33,7 @@ export function LogPagesSheet({ book, onClose, onLogged }: LogPagesSheetProps): 
   const t = useT();
   const queryClient = useQueryClient();
   const [text, setText] = useState('');
+  const [note, setNote] = useState('');
   const [error, setError] = useState('');
   const [requestId, setRequestId] = useState(newRequestId);
 
@@ -40,6 +41,7 @@ export function LogPagesSheet({ book, onClose, onLogged }: LogPagesSheetProps): 
   useEffect(() => {
     if (book) {
       setText('');
+      setNote('');
       setError('');
       setRequestId(newRequestId());
     }
@@ -47,10 +49,12 @@ export function LogPagesSheet({ book, onClose, onLogged }: LogPagesSheetProps): 
 
   const mutation = useMutation({
     mutationFn: ({ bookId, pages }: { bookId: string; pages: number }) =>
-      logPages(bookId, pages, requestId),
+      logPages(bookId, pages, requestId, note.trim() || null),
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ['today'] });
       void queryClient.invalidateQueries({ queryKey: ['books'] });
+      void queryClient.invalidateQueries({ queryKey: ['book'] });
+      void queryClient.invalidateQueries({ queryKey: ['calendar'] });
       void queryClient.invalidateQueries({ queryKey: PROFILE_KEY });
       onLogged(result);
     },
@@ -98,6 +102,14 @@ export function LogPagesSheet({ book, onClose, onLogged }: LogPagesSheetProps): 
         returnKeyType="done"
         onSubmitEditing={submit}
         maxLength={4}
+      />
+      <FormField
+        label={t.log.noteLabel}
+        value={note}
+        onChangeText={setNote}
+        maxLength={280}
+        multiline
+        autoCorrect
       />
       <Button label={t.log.save} onPress={submit} loading={mutation.isPending} />
     </Sheet>

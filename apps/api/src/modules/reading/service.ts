@@ -11,22 +11,27 @@ import {
   clampPagesToBook,
   CONSISTENCY_WINDOW_DAYS,
   currentStreakAsOf,
+  daysBetween,
   daysReadInWindow,
   detectLevelUp,
+  estimateDaysToFinish,
   GOAL_REVIEW_DAYS,
   levelProgress,
   localDateKey,
+  PACE_WINDOW_DAYS,
+  pagesPerDayToFinish,
+  phaseCrossed,
   scoreReadingLog,
   STREAK_GRACE_DAYS,
   suggestSmallerGoal,
   type LevelProgress,
   type ReadingLogScore,
 } from '@habitwar/domain';
-import { Prisma, type PrismaClient } from '@prisma/client';
+import { Prisma, type Book, type PrismaClient } from '@prisma/client';
 
 import { addDays } from '../../lib/calendar.js';
 import { conflict, notFound } from '../../lib/errors.js';
-import { toBookView, type BookView } from '../books/view.js';
+import { toBookView, type BookForecast, type BookView } from '../books/view.js';
 
 export interface ReadingServiceDeps {
   readonly prisma: PrismaClient;
@@ -38,6 +43,7 @@ export interface LogPagesInput {
   readonly bookId: string;
   readonly pages: number;
   readonly clientRequestId: string;
+  readonly note?: string | null;
 }
 
 export interface LogPagesResult {
@@ -53,6 +59,8 @@ export interface LogPagesResult {
     readonly progress: LevelProgress;
   };
   readonly streak: { readonly current: number; readonly longest: number };
+  /** The BOOK_PHASES threshold this log crossed (0.25, 0.5, 0.75), or null. */
+  readonly phase: number | null;
   /** True when this answers a retried request rather than logging anew. */
   readonly replayed: boolean;
 }
@@ -68,7 +76,31 @@ export interface TodaySummary {
   readonly windowDays: number;
   /** A smaller goal to offer, or null when the current one is working. */
   readonly suggestedGoal: number | null;
-  readonly books: readonly BookView[];
+  readonly books: readonly (BookView & { readonly forecast: BookForecast })[];
+}
+
+/** One book in depth: the victory card for a finished book, progress for a current one. */
+export interface BookDetail {
+  readonly book: BookView;
+  readonly stats: {
+    /** Distinct days with reading on this book. */
+    readonly daysRead: number;
+    /** Local day of the first log, or null before any reading. */
+    readonly startedOn: string | null;
+    /** Calendar days from the first log to the finish (or today), inclusive. */
+    readonly daysSpent: number;
+    /** pagesRead / daysSpent, rounded. */
+    readonly pagesPerDay: number;
+  };
+  /** The reader's notes, oldest first. */
+  readonly notes: readonly { readonly date: string; readonly pages: number; readonly note: string }[];
+  /** Null for a finished book. */
+  readonly forecast: BookForecast | null;
+}
+
+export interface CalendarDay {
+  readonly date: string;
+  readonly pages: number;
 }
 
 export class ReadingService {
@@ -150,6 +182,7 @@ export class ReadingService {
         clientRequestId: input.clientRequestId,
         pages,
         dateKey: today,
+        note: input.note ?? null,
         xpAwarded: score.xp,
         score: score as unknown as Prisma.InputJsonValue,
       },
@@ -187,6 +220,7 @@ export class ReadingService {
       book: toBookView(updatedBook),
       level: { ...levelUp, progress: levelProgress(xp) },
       streak: { current: streak.current, longest: streak.longest },
+      phase: phaseCrossed(book.pagesRead, book.pagesRead + pages, book.pageCount),
       replayed: false,
     };
   }
@@ -213,6 +247,8 @@ export class ReadingService {
       book: toBookView(book),
       level: { ...detectLevelUp(user.xp - score.xp, score.xp), progress: levelProgress(user.xp) },
       streak: { current: user.currentStreak, longest: user.longestStreak },
+      // The moment belonged to the original request; a retry does not celebrate twice.
+      phase: null,
       replayed: true,
     };
   }
@@ -255,8 +291,109 @@ export class ReadingService {
       daysRead: daysReadInWindow([...pagesByDay.keys()], today),
       windowDays: CONSISTENCY_WINDOW_DAYS,
       suggestedGoal: this.#goalSuggestion(user, today, pagesByDay, now),
-      books: books.map(toBookView),
+      books: await this.#withForecasts(books, today),
     };
+  }
+
+  /** One book in depth: its numbers, the reader's notes, and the finish estimate. */
+  async bookDetail(userId: string, bookId: string): Promise<BookDetail> {
+    const [user, book] = await Promise.all([
+      this.#prisma.user.findUniqueOrThrow({ where: { id: userId } }),
+      this.#prisma.book.findFirst({ where: { id: bookId, userId } }),
+    ]);
+    if (!book) throw notFound('Book not found');
+
+    const today = localDateKey(this.#now(), user.timezone);
+    const logs = await this.#prisma.readingLog.findMany({
+      where: { bookId: book.id },
+      orderBy: { createdAt: 'asc' },
+      select: { dateKey: true, pages: true, note: true },
+    });
+
+    const startedOn = logs[0]?.dateKey ?? null;
+    const endedOn = book.finishedAt ? localDateKey(book.finishedAt, user.timezone) : today;
+    const daysSpent = startedOn ? daysBetween(startedOn, endedOn) + 1 : 0;
+
+    return {
+      book: toBookView(book),
+      stats: {
+        daysRead: new Set(logs.map((log) => log.dateKey)).size,
+        startedOn,
+        daysSpent,
+        pagesPerDay: daysSpent > 0 ? Math.round(book.pagesRead / daysSpent) : 0,
+      },
+      notes: logs.flatMap((log) => (log.note ? [{ date: log.dateKey, pages: log.pages, note: log.note }] : [])),
+      forecast: book.status === 'READING' ? ((await this.#withForecasts([book], today))[0]?.forecast ?? null) : null,
+    };
+  }
+
+  /** Pages read per local day over the last `days` days, oldest first. Days with no reading are omitted. */
+  async calendar(
+    userId: string,
+    days: number,
+  ): Promise<{ from: string; to: string; dailyGoal: number; days: CalendarDay[] }> {
+    const user = await this.#prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const to = localDateKey(this.#now(), user.timezone);
+    const from = addDays(to, -(days - 1));
+    const rows = await this.#prisma.readingLog.groupBy({
+      by: ['dateKey'],
+      where: { userId, dateKey: { gte: from, lte: to } },
+      _sum: { pages: true },
+      orderBy: { dateKey: 'asc' },
+    });
+    return {
+      from,
+      to,
+      dailyGoal: user.dailyGoal,
+      days: rows.map((row) => ({ date: row.dateKey, pages: row._sum.pages ?? 0 })),
+    };
+  }
+
+  /**
+   * Attaches the finish estimate to each book.
+   *
+   * Pace is the pages read on the book over the last PACE_WINDOW_DAYS days — or since
+   * its first log, for a book started inside the window, so a book begun three days
+   * ago is not judged as if it had sat untouched for the other eleven.
+   */
+  async #withForecasts(books: readonly Book[], today: string) {
+    const ids = books.map((book) => book.id);
+    const windowStart = addDays(today, -(PACE_WINDOW_DAYS - 1));
+    const [recent, firsts] =
+      ids.length === 0
+        ? [[], []]
+        : await Promise.all([
+            this.#prisma.readingLog.groupBy({
+              by: ['bookId'],
+              where: { bookId: { in: ids }, dateKey: { gte: windowStart } },
+              _sum: { pages: true },
+            }),
+            this.#prisma.readingLog.groupBy({
+              by: ['bookId'],
+              where: { bookId: { in: ids } },
+              _min: { dateKey: true },
+            }),
+          ]);
+    const recentPages = new Map(recent.map((row) => [row.bookId, row._sum.pages ?? 0]));
+    const firstDay = new Map(firsts.map((row) => [row.bookId, row._min.dateKey]));
+
+    const [year, month, day] = today.split('-').map(Number) as [number, number, number];
+    const daysLeftInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate() - day + 1;
+
+    return books.map((book) => {
+      const first = firstDay.get(book.id);
+      const span = first ? Math.min(PACE_WINDOW_DAYS, daysBetween(first, today) + 1) : PACE_WINDOW_DAYS;
+      const pace = (recentPages.get(book.id) ?? 0) / span;
+      const pagesLeft = book.pageCount - book.pagesRead;
+      return {
+        ...toBookView(book),
+        forecast: {
+          daysToFinish: estimateDaysToFinish(pagesLeft, pace),
+          pagesPerDayForMonthEnd: pagesPerDayToFinish(pagesLeft, daysLeftInMonth),
+          daysLeftInMonth,
+        },
+      };
+    });
   }
 
   /**

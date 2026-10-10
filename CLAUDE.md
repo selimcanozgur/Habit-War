@@ -66,8 +66,8 @@ Everything is pure: callers pass `now` and timezones in. The core rule is that a
 - Modules live in `src/modules/<name>/`, each with `routes.ts` (`/v1` prefix, its own `requireUser` preHandler), `schemas.ts` (Zod) and `service.ts` (a class taking `{ prisma, now }`):
   - `auth`: own JWT auth with refresh-token rows, argon2, Google/Apple.
   - `me`: profile, settings, onboarding, push tokens, KVKK export and deletion.
-  - `books`: shelf CRUD. Never moves pages.
-  - `reading`: `POST /books/:id/logs` and `GET /today`.
+  - `books`: shelf CRUD plus `GET /books/search`. Search lives in `lib/book-search.ts`: Google Books first, Open Library as the fallback. It's injectable via `BuildServerOptions.bookSearch`, so tests never hit the network. Books never move pages.
+  - `reading`: `POST /books/:id/logs` (optional note, returns the crossed `phase`), `GET /today` (books carry a `forecast`), `GET /books/:id` (stats, notes, forecast; the victory card for a finished book) and `GET /calendar`.
 - **Reading log write path** (`modules/reading/service.ts`): one transaction locks the user row (`SELECT … FOR UPDATE`) so concurrent logs can't both pay the goal bonus. It clamps pages to the book, scores via the domain, then writes `ReadingLog` + `XpLedger` + book + user. It's idempotent on `clientRequestId`: a retry returns the original result with `replayed: true` and status 200.
 - **Invariants:**
   - `User.xp` is a cache of the append-only `XpLedger`.

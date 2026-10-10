@@ -16,12 +16,51 @@ export interface Book {
   readonly id: string;
   readonly title: string;
   readonly author: string | null;
+  readonly coverUrl: string | null;
   readonly pageCount: number;
   readonly pagesRead: number;
   readonly status: BookStatus;
   readonly finishedAt: string | null;
   readonly createdAt: string;
+  readonly rating: number | null;
+  readonly review: string | null;
+  readonly takeaways: readonly string[];
   readonly progress: BookProgress;
+}
+
+export interface BookForecast {
+  /** Null when there is no recent reading to project from. */
+  readonly daysToFinish: number | null;
+  readonly pagesPerDayForMonthEnd: number;
+  readonly daysLeftInMonth: number;
+}
+
+export type BookWithForecast = Book & { readonly forecast: BookForecast };
+
+export interface BookDetail {
+  readonly book: Book;
+  readonly stats: {
+    readonly daysRead: number;
+    readonly startedOn: string | null;
+    readonly daysSpent: number;
+    readonly pagesPerDay: number;
+  };
+  readonly notes: readonly { readonly date: string; readonly pages: number; readonly note: string }[];
+  readonly forecast: BookForecast | null;
+}
+
+export interface BookSearchResult {
+  readonly title: string;
+  readonly author: string | null;
+  readonly pageCount: number | null;
+  readonly coverUrl: string | null;
+}
+
+export interface Calendar {
+  readonly from: string;
+  readonly to: string;
+  readonly dailyGoal: number;
+  readonly days: readonly { readonly date: string; readonly pages: number }[];
 }
 
 export interface Today {
@@ -33,7 +72,7 @@ export interface Today {
   readonly daysRead: number;
   readonly windowDays: number;
   readonly suggestedGoal: number | null;
-  readonly books: readonly Book[];
+  readonly books: readonly BookWithForecast[];
 }
 
 export interface LogResult {
@@ -48,6 +87,8 @@ export interface LogResult {
     readonly progress: LevelProgress;
   };
   readonly streak: { readonly current: number; readonly longest: number };
+  /** The quarter of the book this log crossed (0.25, 0.5, 0.75), or null. */
+  readonly phase: number | null;
   readonly replayed: boolean;
 }
 
@@ -55,6 +96,13 @@ export interface BookInput {
   readonly title: string;
   readonly author: string | null;
   readonly pageCount: number;
+  readonly coverUrl?: string | null;
+}
+
+export interface BookVerdict {
+  readonly rating?: number | null;
+  readonly review?: string | null;
+  readonly takeaways?: readonly string[];
 }
 
 export function getToday(): Promise<Today> {
@@ -69,7 +117,20 @@ export async function createBook(input: BookInput): Promise<Book> {
   return (await apiRequest<{ book: Book }>('/v1/books', { method: 'POST', body: input })).book;
 }
 
-export async function updateBook(id: string, input: Partial<BookInput>): Promise<Book> {
+export function getBook(id: string): Promise<BookDetail> {
+  return apiRequest<BookDetail>(`/v1/books/${id}`);
+}
+
+export async function searchBooks(query: string, signal?: AbortSignal): Promise<readonly BookSearchResult[]> {
+  const path = `/v1/books/search?q=${encodeURIComponent(query)}`;
+  return (await apiRequest<{ results: BookSearchResult[] }>(path, signal ? { signal } : {})).results;
+}
+
+export function getCalendar(): Promise<Calendar> {
+  return apiRequest<Calendar>('/v1/calendar');
+}
+
+export async function updateBook(id: string, input: Partial<BookInput> & BookVerdict): Promise<Book> {
   return (await apiRequest<{ book: Book }>(`/v1/books/${id}`, { method: 'PATCH', body: input })).book;
 }
 
@@ -82,10 +143,15 @@ export function deleteBook(id: string): Promise<void> {
  * on retry, so a request that timed out after the server saved it is not counted
  * twice.
  */
-export function logPages(bookId: string, pages: number, clientRequestId: string): Promise<LogResult> {
+export function logPages(
+  bookId: string,
+  pages: number,
+  clientRequestId: string,
+  note: string | null,
+): Promise<LogResult> {
   return apiRequest<LogResult>(`/v1/books/${bookId}/logs`, {
     method: 'POST',
-    body: { pages, clientRequestId },
+    body: { pages, clientRequestId, note },
   });
 }
 

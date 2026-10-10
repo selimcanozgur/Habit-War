@@ -20,6 +20,7 @@ export interface Profile {
   readonly xp: number;
   readonly progress: LevelProgress;
   readonly streak: { readonly current: number; readonly longest: number };
+  readonly yearly: { readonly year: number; readonly goal: number | null; readonly finished: number };
   readonly stats: {
     readonly totalPages: number;
     readonly booksFinished: number;
@@ -35,6 +36,7 @@ export interface ProfileUpdate {
   readonly locale?: ServerLocale;
   readonly dailyGoal?: number;
   readonly reminderTime?: string | null;
+  readonly yearlyBookGoal?: number | null;
 }
 
 export interface OnboardingInput {

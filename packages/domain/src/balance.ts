@@ -95,6 +95,25 @@ export const GOAL_REVIEW_DAYS = 7;
 export const GOAL_REVIEW_MIN_DAYS_MET = 4;
 
 // ---------------------------------------------------------------------------
+// Books
+// ---------------------------------------------------------------------------
+
+/**
+ * Shares of a book read at which the enemy enters a new phase. Long books sag in the
+ * middle; a moment at each quarter gives the reader something close to aim for.
+ */
+export const BOOK_PHASES: readonly number[] = [0.25, 0.5, 0.75];
+
+/**
+ * Days of recent reading a book's pace is measured over, for the finish estimate.
+ * Long enough to smooth a missed day, short enough to follow a change of habit.
+ */
+export const PACE_WINDOW_DAYS = 14;
+
+/** Takeaways a reader may write for a finished book. */
+export const MAX_TAKEAWAYS = 3;
+
+// ---------------------------------------------------------------------------
 // Input limits
 // ---------------------------------------------------------------------------
 
