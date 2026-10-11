@@ -22,11 +22,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ApiError } from '../../src/api/client';
 import { useAuth } from '../../src/auth/AuthContext';
+import { useT } from '../../src/i18n';
 import { FormField } from '../../src/components/FormField';
 import { colors, radius, spacing, type } from '../../src/theme';
 
 export default function SignInScreen(): React.JSX.Element {
   const { signIn } = useAuth();
+  const t = useT();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -51,11 +53,11 @@ export default function SignInScreen(): React.JSX.Element {
     // Client-side pre-check so trivial mistakes get instant feedback.
     let hasError = false;
     if (!trimmedEmail) {
-      setEmailError('E-posta adresini gir');
+      setEmailError(t.auth.emailRequired);
       hasError = true;
     }
     if (!password) {
-      setPasswordError('Şifreni gir');
+      setPasswordError(t.auth.passwordRequired);
       hasError = true;
     }
     if (hasError) return;
@@ -67,22 +69,22 @@ export default function SignInScreen(): React.JSX.Element {
     } catch (error) {
       if (error instanceof ApiError) {
         switch (error.code) {
-          case 'INVALID_CREDENTIALS':
+          case 'UNAUTHORIZED':
             // Same message for unknown email and wrong password — telling which one
             // is correct would let an attacker enumerate accounts.
-            setGeneralError('E-posta veya şifre hatalı');
+            setGeneralError(t.auth.wrongCredentials);
             break;
-          case 'EMAIL_NOT_VERIFIED':
-            setGeneralError('E-posta adresini doğrulamadan giriş yapamazsın');
+          case 'FORBIDDEN':
+            setGeneralError(t.auth.unverified);
             break;
-          case 'ACCOUNT_SUSPENDED':
-            setGeneralError('Bu hesap askıya alındı');
+          case 'NETWORK':
+            setGeneralError(t.common.networkError);
             break;
           default:
-            setGeneralError('Giriş yapılamadı. Lütfen tekrar dene.');
+            setGeneralError(t.auth.signInFailed);
         }
       } else {
-        setGeneralError('Bağlantı hatası. İnternet bağlantını kontrol et.');
+        setGeneralError(t.common.networkError);
       }
     } finally {
       setLoading(false);
@@ -103,8 +105,8 @@ export default function SignInScreen(): React.JSX.Element {
         >
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>Tekrar hoş geldin</Text>
-            <Text style={styles.subtitle}>Hesabına giriş yap</Text>
+            <Text style={styles.title}>{t.auth.signInTitle}</Text>
+            <Text style={styles.subtitle}>{t.auth.signInSubtitle}</Text>
           </View>
 
           {/* Form */}
@@ -116,7 +118,7 @@ export default function SignInScreen(): React.JSX.Element {
             ) : null}
 
             <FormField
-              label="E-posta"
+              label={t.auth.email}
               value={email}
               onChangeText={(value) => {
                 setEmail(value);
@@ -131,12 +133,12 @@ export default function SignInScreen(): React.JSX.Element {
               autoComplete="email"
               returnKeyType="next"
               onSubmitEditing={() => passwordRef.current?.focus()}
-              placeholder="ornek@mail.com"
+              placeholder={t.auth.emailPlaceholder}
             />
 
             <FormField
               ref={passwordRef}
-              label="Şifre"
+              label={t.auth.password}
               value={password}
               onChangeText={(value) => {
                 setPassword(value);
@@ -155,7 +157,7 @@ export default function SignInScreen(): React.JSX.Element {
               onPress={() => router.push('/(auth)/forgot-password')}
               style={styles.forgotLink}
             >
-              <Text style={styles.link}>Şifremi unuttum</Text>
+              <Text style={styles.link}>{t.auth.forgotPassword}</Text>
             </Pressable>
           </View>
 
@@ -166,19 +168,19 @@ export default function SignInScreen(): React.JSX.Element {
               onPress={() => void handleSignIn()}
               disabled={loading}
               accessibilityRole="button"
-              accessibilityLabel="Giriş yap"
+              accessibilityLabel={t.auth.signIn}
             >
               {loading ? (
                 <ActivityIndicator color={colors.textOnDark} size="small" />
               ) : (
-                <Text style={styles.primaryButtonText}>Giriş Yap</Text>
+                <Text style={styles.primaryButtonText}>{t.auth.signIn}</Text>
               )}
             </Pressable>
 
             <View style={styles.footer}>
-              <Text style={styles.footerText}>Hesabın yok mu? </Text>
+              <Text style={styles.footerText}>{t.auth.noAccount}</Text>
               <Pressable onPress={() => router.replace('/(auth)/sign-up')}>
-                <Text style={styles.link}>Kayıt ol</Text>
+                <Text style={styles.link}>{t.auth.signUp}</Text>
               </Pressable>
             </View>
           </View>

@@ -38,6 +38,22 @@ export function localHour(instant: Date, timeZone: string): number {
   return hour;
 }
 
+/** Minutes since local midnight (0-1439) on the user's own wall clock at `instant`. */
+export function localMinutes(instant: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(instant);
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) {
+    throw new RangeError(`localMinutes: could not read the time for timezone "${timeZone}"`);
+  }
+  return hour * 60 + minute;
+}
+
 /**
  * Whether the runtime recognises this IANA timezone.
  *

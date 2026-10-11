@@ -55,7 +55,7 @@ export class ApiError extends Error {
   }
 }
 
-/** Supplies the auth header. Swapped for Clerk's token getter once sign-in exists. */
+/** Supplies the auth header. Registered by the AuthProvider. */
 export type AuthHeaderProvider = () => Promise<Record<string, string>>;
 
 let authHeaderProvider: AuthHeaderProvider = async () => ({});
@@ -95,7 +95,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   } catch (error) {
     // fetch rejects only on network failure; give that its own code so the UI can
     // say "you're offline" rather than "something went wrong".
-    throw new ApiError(0, 'NETWORK', 'Sunucuya ulaşılamadı', error);
+    throw new ApiError(0, 'NETWORK', 'Network request failed', error);
   }
 
   if (response.status === 204) return undefined as T;
@@ -108,7 +108,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     throw new ApiError(
       response.status,
       envelope?.error?.code ?? 'UNKNOWN',
-      envelope?.error?.message ?? `İstek başarısız (${response.status})`,
+      envelope?.error?.message ?? `Request failed (${response.status})`,
       envelope?.error?.details,
     );
   }

@@ -109,7 +109,7 @@ export class AuthService {
 
     const problem = checkPasswordStrength(input.password);
     if (problem) {
-      throw new AppError('UNPROCESSABLE', passwordMessage(problem));
+      throw new AppError('UNPROCESSABLE', passwordMessage(problem), { problem });
     }
 
     const existing = await this.#prisma.user.findFirst({ where: { email } });
@@ -360,7 +360,7 @@ export class AuthService {
   }): Promise<void> {
     const problem = checkPasswordStrength(input.password);
     if (problem) {
-      throw new AppError('UNPROCESSABLE', passwordMessage(problem));
+      throw new AppError('UNPROCESSABLE', passwordMessage(problem), { problem });
     }
 
     const record = await this.#consumeToken(input.token, 'PASSWORD_RESET');

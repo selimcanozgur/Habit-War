@@ -83,7 +83,7 @@ describe('sign-up', () => {
 
     const me = await app.inject({
       method: 'GET',
-      url: '/v1/users/me',
+      url: '/v1/me',
       headers: { authorization: `Bearer ${accessToken}` },
     });
     expect(me.statusCode).toBe(200);
@@ -203,7 +203,7 @@ describe('sign-in', () => {
 
 describe('access tokens', () => {
   it('refuses a request with no token', async () => {
-    const response = await app.inject({ method: 'GET', url: '/v1/users/me' });
+    const response = await app.inject({ method: 'GET', url: '/v1/me' });
     expect(response.statusCode).toBe(401);
   });
 
@@ -215,7 +215,7 @@ describe('access tokens', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/v1/users/me',
+      url: '/v1/me',
       headers: { authorization: `Bearer ${forged}` },
     });
     expect(response.statusCode).toBe(401);
@@ -225,7 +225,7 @@ describe('access tokens', () => {
     const { accessToken } = await signUp();
     const response = await app.inject({
       method: 'GET',
-      url: '/v1/users/me',
+      url: '/v1/me',
       headers: { authorization: accessToken },
     });
     expect(response.statusCode).toBe(401);
@@ -329,7 +329,7 @@ describe('sign-out', () => {
 
     const me = await app.inject({
       method: 'GET',
-      url: '/v1/users/me',
+      url: '/v1/me',
       headers: { authorization: `Bearer ${accessToken}` },
     });
     expect(me.statusCode).toBe(401);
@@ -395,61 +395,6 @@ describe('password reset', () => {
   });
 });
 
-describe('suspension', () => {
-  it('refuses a suspended account', async () => {
-    const { accessToken, userId } = await signUp();
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        suspendedUntil: new Date(Date.now() + 86_400_000),
-        suspensionReason: 'test',
-      },
-    });
-
-    const response = await app.inject({
-      method: 'GET',
-      url: '/v1/habits',
-      headers: { authorization: `Bearer ${accessToken}` },
-    });
-    expect(response.statusCode).toBe(403);
-  });
-
-  /**
-   * Suspension removes the ability to participate, not the right to know why or to
-   * leave. Blocking the profile read would leave the user staring at an error with
-   * no explanation.
-   */
-  it('still allows the exempt routes', async () => {
-    const { accessToken, userId } = await signUp();
-    await prisma.user.update({
-      where: { id: userId },
-      data: { suspendedUntil: new Date(Date.now() + 86_400_000), suspensionReason: 'test' },
-    });
-
-    const response = await app.inject({
-      method: 'GET',
-      url: '/v1/users/me',
-      headers: { authorization: `Bearer ${accessToken}` },
-    });
-    expect(response.statusCode).toBe(200);
-  });
-
-  it('lets an expired suspension through', async () => {
-    const { accessToken, userId } = await signUp();
-    await prisma.user.update({
-      where: { id: userId },
-      data: { suspendedUntil: new Date(Date.now() - 1000), suspensionReason: 'test' },
-    });
-
-    const response = await app.inject({
-      method: 'GET',
-      url: '/v1/habits',
-      headers: { authorization: `Bearer ${accessToken}` },
-    });
-    expect(response.statusCode).toBe(200);
-  });
-});
-
 describe('deleted accounts', () => {
   it('refuses a token belonging to a deleted account', async () => {
     const { accessToken, userId } = await signUp();
@@ -457,7 +402,7 @@ describe('deleted accounts', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/v1/users/me',
+      url: '/v1/me',
       headers: { authorization: `Bearer ${accessToken}` },
     });
     expect(response.statusCode).toBe(403);

@@ -7,18 +7,18 @@
  * in the morning.
  */
 
+import { createExpoClient } from '../../lib/push.js';
 import { JOB_NAMES, type JobName } from '../constants.js';
 import type { JobTask } from '../context.js';
 import { runAccountErasure } from './account-erasure.js';
-import { runDuelSettlement } from './duel-settlement.js';
-import { runStaleSessionSweep } from './stale-session-sweep.js';
-import { runStreakAtRisk } from './streak-at-risk.js';
+import { createReadingReminderTask } from './reading-reminder.js';
 
 export const TASKS: Record<JobName, JobTask> = {
   [JOB_NAMES.accountErasure]: runAccountErasure,
-  [JOB_NAMES.duelSettlement]: runDuelSettlement,
-  [JOB_NAMES.staleSessionSweep]: runStaleSessionSweep,
-  [JOB_NAMES.streakAtRisk]: runStreakAtRisk,
+  // Only needed when the Expo project has enhanced push security turned on.
+  [JOB_NAMES.readingReminder]: createReadingReminderTask(
+    createExpoClient(process.env['EXPO_ACCESS_TOKEN']),
+  ),
 };
 
 /**
@@ -33,4 +33,4 @@ export function taskFor(name: string): JobTask | null {
   return Object.hasOwn(TASKS, name) ? (TASKS[name as JobName] ?? null) : null;
 }
 
-export { runAccountErasure, runDuelSettlement, runStaleSessionSweep, runStreakAtRisk };
+export { runAccountErasure };

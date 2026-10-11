@@ -28,6 +28,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
+import { useT } from '../i18n';
 import { colors, radius, spacing, type } from '../theme';
 
 /** Long enough to read as movement, short enough not to make the user wait. */
@@ -71,6 +72,7 @@ export function XpBar({
   compact = false,
   onDark = false,
 }: XpBarProps): React.JSX.Element {
+  const t = useT();
   const fill = useSharedValue(ratio);
 
   useEffect(() => {
@@ -107,7 +109,7 @@ export function XpBar({
 
   const counter = (
     <Text style={[styles.counter, onDark && styles.counterOnDark]}>
-      {atMaxLevel ? 'Azami seviye' : `${xpIntoLevel} / ${xpForNextLevel} XP`}
+      {atMaxLevel ? t.profile.maxLevel : `${xpIntoLevel} / ${xpForNextLevel} XP`}
     </Text>
   );
 
@@ -134,7 +136,7 @@ export function XpBar({
       <View style={styles.labelRow}>
         {!compact && (
           <View style={styles.levelBadge}>
-            <Text style={styles.levelBadgeText}>Sv {level}</Text>
+            <Text style={styles.levelBadgeText}>{t.profile.levelShort(level)}</Text>
           </View>
         )}
         {counter}

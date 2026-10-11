@@ -10,19 +10,17 @@
  *
  * Patterns are read in `SCHEDULER_TIMEZONE` (UTC) on purpose. See `constants.ts`: a
  * local-zone cron shifts twice a year, skipping or doubling a daily run. The one job
- * that genuinely has to respect local time — `streak-at-risk` — derives each user's
- * own hour instead, and its comment explains why that is the only correct shape.
+ * that has to respect local time — `reading-reminder` — reads each user's own wall
+ * clock instead.
  */
 
 import type { Queue } from 'bullmq';
 
 import {
   ACCOUNT_ERASURE_CRON,
-  DUEL_SETTLEMENT_CRON,
   JOB_NAMES,
+  READING_REMINDER_CRON,
   SCHEDULER_TIMEZONE,
-  STALE_SESSION_SWEEP_CRON,
-  STREAK_AT_RISK_CRON,
   type JobName,
 } from './constants.js';
 import type { Logger } from './logger.js';
@@ -41,9 +39,7 @@ export interface Schedule {
  */
 export const SCHEDULES: readonly Schedule[] = [
   { name: JOB_NAMES.accountErasure, pattern: ACCOUNT_ERASURE_CRON },
-  { name: JOB_NAMES.duelSettlement, pattern: DUEL_SETTLEMENT_CRON },
-  { name: JOB_NAMES.staleSessionSweep, pattern: STALE_SESSION_SWEEP_CRON },
-  { name: JOB_NAMES.streakAtRisk, pattern: STREAK_AT_RISK_CRON },
+  { name: JOB_NAMES.readingReminder, pattern: READING_REMINDER_CRON },
 ];
 
 /**

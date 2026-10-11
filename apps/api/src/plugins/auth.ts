@@ -15,7 +15,6 @@
  * worth it.
  */
 
-import type { UserRole } from '@prisma/client';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 
@@ -29,14 +28,10 @@ declare module 'fastify' {
     userId: string;
     /** Session this request's token was minted from. Null under dev auth. */
     sessionId: string | null;
-    /** Role of the authenticated user. Empty-ish until requireUser has run. */
-    userRole: UserRole;
   }
 
   interface FastifyInstance {
     requireUser: (request: FastifyRequest) => Promise<void>;
-    /** Authenticates, then refuses anyone without a staff role. */
-    requireModerator: (request: FastifyRequest) => Promise<void>;
   }
 }
 
@@ -44,7 +39,7 @@ const DEV_USER_HEADER = 'x-dev-user-id';
 
 export interface AuthPluginOptions {
   readonly env: Env;
-  /** Clock, injected so suspension-expiry tests do not have to wait. */
+  /** Clock, injected so session-expiry tests do not have to wait. */
   readonly now?: () => Date;
 }
 
@@ -63,7 +58,6 @@ async function authPlugin(app: FastifyInstance, options: AuthPluginOptions): Pro
 
   app.decorateRequest('userId', '');
   app.decorateRequest('sessionId', null);
-  app.decorateRequest('userRole', 'USER');
 
   if (env.AUTH_MODE === 'dev') {
     app.log.warn('AUTH_MODE=dev: requests are authenticated by the x-dev-user-id header');
@@ -78,9 +72,9 @@ async function authPlugin(app: FastifyInstance, options: AuthPluginOptions): Pro
       if (!user) {
         throw new AppError('UNAUTHORIZED', 'Unknown user id');
       }
-      attachUser(request, user, null, now());
+      request.userId = user.id;
+      request.sessionId = null;
     });
-    app.decorate('requireModerator', moderatorGuard(app));
     return;
   }
 
@@ -98,7 +92,7 @@ async function authPlugin(app: FastifyInstance, options: AuthPluginOptions): Pro
       claims = await verifyAccessToken(token, secret);
     } catch (error) {
       request.log.debug({ err: error }, 'access token verification failed');
-      throw new AppError('UNAUTHORIZED', 'Oturum geçersiz. Tekrar giriş yap.');
+      throw new AppError('UNAUTHORIZED', 'Session is invalid. Sign in again.');
     }
 
     /*
@@ -112,9 +106,8 @@ async function authPlugin(app: FastifyInstance, options: AuthPluginOptions): Pro
       include: { user: true },
     });
 
-    const at = now();
-    if (!session || session.revokedAt || session.expiresAt <= at) {
-      throw new AppError('UNAUTHORIZED', 'Oturum sonlandırılmış. Tekrar giriş yap.');
+    if (!session || session.revokedAt || session.expiresAt <= now()) {
+      throw new AppError('UNAUTHORIZED', 'Session has ended. Sign in again.');
     }
     if (session.userId !== claims.userId) {
       // A valid signature naming a session that belongs to someone else means the
@@ -124,93 +117,15 @@ async function authPlugin(app: FastifyInstance, options: AuthPluginOptions): Pro
         { sessionId: claims.sessionId, claimed: claims.userId },
         'token subject does not match its session owner',
       );
-      throw new AppError('UNAUTHORIZED', 'Oturum geçersiz. Tekrar giriş yap.');
+      throw new AppError('UNAUTHORIZED', 'Session is invalid. Sign in again.');
     }
     if (session.user.deletedAt) {
       throw new AppError('FORBIDDEN', 'Account has been deleted');
     }
 
-    attachUser(request, session.user, session.id, at);
+    request.userId = session.user.id;
+    request.sessionId = session.id;
   });
-
-  app.decorate('requireModerator', moderatorGuard(app));
-}
-
-/**
- * Routes a suspended account may still reach.
- *
- * Suspension removes the ability to participate, not the right to know why or to
- * leave. Blocking the data export would deny a KVKK/GDPR portability request as a
- * side effect of enforcement, and blocking the profile read would leave the user
- * staring at an error with no explanation of what happened.
- */
-const SUSPENSION_EXEMPT: readonly { method: string; path: string }[] = [
-  { method: 'GET', path: '/v1/users/me' },
-  { method: 'GET', path: '/v1/me/export' },
-  { method: 'GET', path: '/v1/me/consents' },
-  { method: 'DELETE', path: '/v1/me' },
-];
-
-function isSuspensionExempt(request: FastifyRequest): boolean {
-  // routerPath carries the registered pattern, not the concrete URL, so a query
-  // string or a trailing id cannot be used to slip past the comparison.
-  const path = request.routeOptions?.url ?? request.url.split('?')[0] ?? '';
-  return SUSPENSION_EXEMPT.some(
-    (exempt) => exempt.method === request.method && exempt.path === path,
-  );
-}
-
-/** Fields the guards need. Kept structural so tests can pass a plain object. */
-interface AuthenticatedUser {
-  readonly id: string;
-  readonly role: UserRole;
-  readonly suspendedUntil: Date | null;
-  readonly suspensionReason: string | null;
-}
-
-/**
- * Puts the resolved identity on the request, refusing suspended accounts.
- *
- * Shared by both auth modes so the suspension rule cannot be enforced in one and
- * forgotten in the other — which is exactly how an enforcement bypass ships.
- */
-function attachUser(
-  request: FastifyRequest,
-  user: AuthenticatedUser,
-  sessionId: string | null,
-  at: Date,
-): void {
-  if (user.suspendedUntil && user.suspendedUntil > at && !isSuspensionExempt(request)) {
-    throw new AppError('FORBIDDEN', 'Account is suspended', {
-      until: user.suspendedUntil.toISOString(),
-      reason: user.suspensionReason,
-    });
-  }
-
-  request.userId = user.id;
-  request.sessionId = sessionId;
-  request.userRole = user.role;
-}
-
-/**
- * Moderator guard.
- *
- * Authenticates first, then checks the role — so an unauthenticated caller gets 401
- * and an authenticated non-moderator gets 403. Collapsing both to 404 would hide the
- * existence of the moderation API, but staff routes are not a secret and the
- * distinction is what makes a misconfigured staff account debuggable.
- */
-function moderatorGuard(app: FastifyInstance) {
-  return async function requireModerator(request: FastifyRequest): Promise<void> {
-    await app.requireUser(request);
-    if (request.userRole !== 'MODERATOR' && request.userRole !== 'ADMIN') {
-      request.log.warn(
-        { userId: request.userId, url: request.url },
-        'non-moderator attempted a moderation route',
-      );
-      throw new AppError('FORBIDDEN', 'Moderator access required');
-    }
-  };
 }
 
 export default fp(authPlugin, { name: 'auth', dependencies: ['prisma'] });

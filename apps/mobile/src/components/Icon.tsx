@@ -13,31 +13,12 @@
 
 import type { SvgProps } from 'react-native-svg';
 
-import BattleIcon from '../../assets/icons/navigation/battle.svg';
-import BattleFilledIcon from '../../assets/icons/navigation/battle-filled.svg';
-import FeedIcon from '../../assets/icons/navigation/feed.svg';
-import FeedFilledIcon from '../../assets/icons/navigation/feed-filled.svg';
-import FriendsIcon from '../../assets/icons/navigation/friends.svg';
-import FriendsFilledIcon from '../../assets/icons/navigation/friends-filled.svg';
+import ShelfIcon from '../../assets/icons/navigation/shelf.svg';
+import ShelfFilledIcon from '../../assets/icons/navigation/shelf-filled.svg';
 import ProfileIcon from '../../assets/icons/navigation/profile.svg';
 import ProfileFilledIcon from '../../assets/icons/navigation/profile-filled.svg';
 import TodayIcon from '../../assets/icons/navigation/today.svg';
 import TodayFilledIcon from '../../assets/icons/navigation/today-filled.svg';
-
-import CharismaIcon from '../../assets/icons/stats/charisma.svg';
-import DexterityIcon from '../../assets/icons/stats/dexterity.svg';
-import EnduranceIcon from '../../assets/icons/stats/endurance.svg';
-import IntelligenceIcon from '../../assets/icons/stats/intelligence.svg';
-import StrengthIcon from '../../assets/icons/stats/strength.svg';
-import WisdomIcon from '../../assets/icons/stats/wisdom.svg';
-
-import CreativeIcon from '../../assets/icons/categories/creative.svg';
-import FitnessIcon from '../../assets/icons/categories/fitness.svg';
-import HealthIcon from '../../assets/icons/categories/health.svg';
-import MindfulnessIcon from '../../assets/icons/categories/mindfulness.svg';
-import SkillIcon from '../../assets/icons/categories/skill.svg';
-import SocialIcon from '../../assets/icons/categories/social.svg';
-import StudyIcon from '../../assets/icons/categories/study.svg';
 
 import AlertIcon from '../../assets/icons/ui/alert.svg';
 import ArrowLeftIcon from '../../assets/icons/ui/arrow-left.svg';
@@ -91,31 +72,10 @@ const ICONS = {
   // Navigation
   today: TodayIcon,
   'today-filled': TodayFilledIcon,
-  feed: FeedIcon,
-  'feed-filled': FeedFilledIcon,
-  battle: BattleIcon,
-  'battle-filled': BattleFilledIcon,
-  friends: FriendsIcon,
-  'friends-filled': FriendsFilledIcon,
+  shelf: ShelfIcon,
+  'shelf-filled': ShelfFilledIcon,
   profile: ProfileIcon,
   'profile-filled': ProfileFilledIcon,
-
-  // Stats
-  strength: StrengthIcon,
-  endurance: EnduranceIcon,
-  intelligence: IntelligenceIcon,
-  wisdom: WisdomIcon,
-  charisma: CharismaIcon,
-  dexterity: DexterityIcon,
-
-  // Habit categories
-  fitness: FitnessIcon,
-  study: StudyIcon,
-  mindfulness: MindfulnessIcon,
-  creative: CreativeIcon,
-  social: SocialIcon,
-  health: HealthIcon,
-  skill: SkillIcon,
 
   // UI
   alert: AlertIcon,
@@ -166,27 +126,6 @@ const ICONS = {
 } as const;
 
 export type IconName = keyof typeof ICONS;
-
-/** Habit category to its glyph. Category is the only thing every habit has. */
-export const CATEGORY_ICONS: Readonly<Record<string, IconName>> = {
-  FITNESS: 'fitness',
-  STUDY: 'study',
-  MINDFULNESS: 'mindfulness',
-  CREATIVE: 'creative',
-  SOCIAL: 'social',
-  HEALTH: 'health',
-  SKILL: 'skill',
-};
-
-/** Stat to its glyph. */
-export const STAT_ICONS: Readonly<Record<string, IconName>> = {
-  STR: 'strength',
-  END: 'endurance',
-  INT: 'intelligence',
-  WIS: 'wisdom',
-  CHA: 'charisma',
-  DEX: 'dexterity',
-};
 
 export interface IconProps extends Omit<SvgProps, 'width' | 'height' | 'color'> {
   readonly name: IconName;
